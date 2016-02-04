@@ -14,13 +14,13 @@ public class Main extends BaseFactor {
     }
 
     private void init() {
-        int length = 20;
+        int length = 100;
         BigInteger a = BigInteger.probablePrime(length, random);
         BigInteger b = BigInteger.probablePrime(length, random);
 
         BigInteger input = a.multiply(b);
         log(a, b);
-        log(input);
+        log(input, input.toString().length());
         log("---------");
         log();
         new QuadraticThieve().factor(input);

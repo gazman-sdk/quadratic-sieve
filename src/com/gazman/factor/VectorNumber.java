@@ -7,23 +7,18 @@ import java.math.BigInteger;
  */
 public class VectorNumber {
     private BigInteger originalX;
+    private BigInteger originalY;
     private int version;
     private static int generalVersion;
     private final BigInteger N;
     private BigInteger[] primeBase;
     private BigInteger root;
-    private VersionBoolean[] vector;
-    private BigInteger originalY;
     private BigInteger y;
 
     public VectorNumber(BigInteger N, BigInteger[] primeBase, BigInteger root) {
         this.N = N;
         this.primeBase = primeBase;
         this.root = root;
-        vector = new VersionBoolean[primeBase.length];
-        for (int i = 0; i < vector.length; i++) {
-            vector[i] = new VersionBoolean();
-        }
     }
 
     public static void upgrade() {
@@ -44,40 +39,12 @@ public class VectorNumber {
                 break;
             }
             y = y.divide(prime);
-            vector[primeIndex].not();
         } while (y.mod(prime).equals(BigInteger.ZERO));
 
         return y.equals(BigInteger.ONE);
     }
 
-    public VectorData buildVector(){
-        VectorData vectorData = new VectorData();
-        vectorData.x = originalX;
-        vectorData.y = originalY;
-        vectorData.vector = new boolean[this.vector.length];
-        for (int i = 0; i < vectorData.vector.length; i++) {
-            vectorData.vector[i] = this.vector[i].getValue();
-        }
-
-        return vectorData;
-    }
-
-    private class VersionBoolean {
-        private int version;
-        private boolean value;
-
-        public boolean getValue() {
-            return version >= generalVersion && value;
-        }
-
-        public void not() {
-            value = !getValue();
-            version = generalVersion;
-        }
-
-        public void setValue(boolean value) {
-            version = generalVersion;
-            this.value = value;
-        }
+    public VectorData getData() {
+        return new VectorData(originalX, originalY);
     }
 }

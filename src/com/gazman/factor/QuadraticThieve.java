@@ -10,8 +10,8 @@ import java.util.ArrayList;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends BaseFactor {
-    private static final int B_SMOOTH = 20;
-    private static final int SIEVE_VECTOR_BOUND = 1000;
+    private static final int B_SMOOTH = 50000;
+    private static final int SIEVE_VECTOR_BOUND = 1000000;
     private BigInteger primeBase[];
     private ArrayList<VectorData> vectorDatas = new ArrayList<>();
     private BigInteger N;
@@ -69,7 +69,7 @@ public class QuadraticThieve extends BaseFactor {
                 long position = wheel.move();
                 int index = (int) (position % SIEVE_VECTOR_BOUND);
                 if(vectorNumbers[index].sieve(i, position)){
-                    vectorDatas.add(vectorNumbers[index].buildVector());
+                    vectorDatas.add(vectorNumbers[index].getData());
                     foundNewVectors = true;
                 }
             }
@@ -82,6 +82,11 @@ public class QuadraticThieve extends BaseFactor {
             log("Found vector", vectorDatas.size());
             return false;
         }
+
+        for (VectorData vectorData : vectorDatas) {
+            vectorData.buildVector(primeBase);
+        }
+
         log("Solving...", vectorDatas.size());
         matrix = new Matrix();
         matrix.setLogsEnabled(false);
