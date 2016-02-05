@@ -23,5 +23,11 @@ Perhaps I should start by showing how this algorithm is actually working.
  
  So while there are still a lot to improve this algorithm simply works. And it's doing a great job! 
  I hope you enjoy it just the same way I do.
+__________________________________________
+V1.0
+----------
+
+Improved the memory performance by moving the in search vector building part, where I break b-smooth values to vector. I moved it to after the search. So it slow down the performance since it's extra step on the way, but it allows to factor bigger numbers since memory is no longer a limit.
+
 
 
