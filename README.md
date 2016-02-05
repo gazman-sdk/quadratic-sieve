@@ -24,10 +24,22 @@ Perhaps I should start by showing how this algorithm is actually working.
  So while there are still a lot to improve this algorithm simply works. And it's doing a great job! 
  I hope you enjoy it just the same way I do.
 __________________________________________
-V1.0
+
+V1.01
 ----------
 
 Improved the memory performance by moving the in search vector building part, where I break b-smooth values to vector. I moved it to after the search. So it slow down the performance since it's extra step on the way, but it allows to factor bigger numbers since memory is no longer a limit.
+
+V1.5
+---------
+
+ - Fixed bug with wheels, that sometimes wheel 2 been faster than wheel 1 and it caused to miss some factors.
+ - Added Stefan Buettcher implementation of Tonelli–Shanks algorithm to speed up the wheel initialization. 
+   I made some small optimizations to his code, but there are parts that are pretty messy, like MathUtils.v_ method that I don't fully understand yet.
+
+At this point the bottleneck is in solving the matrix, it turns out that the current implementation doing it in O(N^4) so it's taking hours to solve 10K vectors.
+
+
 
 
 
