@@ -5,7 +5,7 @@ import java.math.BigInteger;
 /**
  * Created by Ilya Gazman on 2/2/2016.
  */
-public class VectorNumber {
+public class NumberData {
     private BigInteger originalX;
     private BigInteger originalY;
     private int version;
@@ -14,8 +14,9 @@ public class VectorNumber {
     private BigInteger[] primeBase;
     private BigInteger root;
     private BigInteger y;
+    private int divisions;
 
-    public VectorNumber(BigInteger N, BigInteger[] primeBase, BigInteger root) {
+    public NumberData(BigInteger N, BigInteger[] primeBase, BigInteger root) {
         this.N = N;
         this.primeBase = primeBase;
         this.root = root;
@@ -27,6 +28,7 @@ public class VectorNumber {
 
     public boolean sieve(int primeIndex, long position) {
         if (version < generalVersion) {
+            divisions = 0;
             originalX = root.add(BigInteger.valueOf(position)).pow(2);
             originalY = originalX.subtract(N);
             y = originalY;
@@ -35,16 +37,22 @@ public class VectorNumber {
 
         BigInteger prime = primeBase[primeIndex];
         do {
-            if(!y.mod(prime).equals(BigInteger.ZERO)){
-                break;
-            }
             y = y.divide(prime);
+            divisions++;
         } while (y.mod(prime).equals(BigInteger.ZERO));
 
         return y.equals(BigInteger.ONE);
     }
 
+    public BigInteger getRemindY(){
+        return version < generalVersion || y.equals(BigInteger.ONE)? null : y;
+    }
+
     public VectorData getData() {
         return new VectorData(originalX, originalY);
+    }
+
+    public int getDivisions() {
+        return divisions;
     }
 }

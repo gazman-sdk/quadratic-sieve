@@ -14,9 +14,12 @@ public class Main extends BaseFactor {
     }
 
     private void init() {
-        int length = 100;
+        int length = 70;
         BigInteger a = BigInteger.probablePrime(length, random);
         BigInteger b = BigInteger.probablePrime(length, random);
+
+//        a = BigInteger.valueOf(241);
+//        b = BigInteger.valueOf(173);
 
         BigInteger input = a.multiply(b);
         log(a, b);

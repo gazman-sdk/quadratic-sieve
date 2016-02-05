@@ -10,39 +10,48 @@ import java.util.ArrayList;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends BaseFactor {
-    private static final int B_SMOOTH = 50000;
-    private static final int SIEVE_VECTOR_BOUND = 1000000;
+    private static final int B_SMOOTH = 1000;
+    private int sieveVectorBound;
     private BigInteger primeBase[];
     private ArrayList<VectorData> vectorDatas = new ArrayList<>();
     private BigInteger N;
     private Matrix matrix = new Matrix();
-    private VectorNumber vectorNumbers[] = new VectorNumber[SIEVE_VECTOR_BOUND];
+    private NumberData numberDatas[];
     private Wheel wheels[] = new Wheel[B_SMOOTH];
     private BigInteger root;
 
     public void factor(BigInteger input) {
         N = input;
         root = SqrRoot.bigIntSqRootCeil(input);
-        long position = 0;
-        long step =  SIEVE_VECTOR_BOUND;
-
         matrix.setLogsEnabled(false);
 
         log("Building Prime Base");
         buildPrimeBase();
+        sieveVectorBound = primeBase[primeBase.length - 1].intValue();
         log("Biggest prime is", primeBase[primeBase.length - 1]);
+        log();
+
         log("Building sieve vector");
         initSieveVector();
+
         log("Building wheels");
         initSieveWheels();
 
+
         log("Start searching");
+        long position = 0;
+        long step = sieveVectorBound;
 
         while (true) {
-            VectorNumber.upgrade();
+            NumberData.upgrade();
             position += step;
-            if (sieve(position) && tryToSolve()) {
-                break;
+            int newVectorsFromSieving = sieve(position);
+            if (newVectorsFromSieving < 0) {
+//                searchForGiants(position, newVectorsFromSieving * -1);
+            } else {
+                if (tryToSolve()) {
+                    break;
+                }
             }
         }
     }
@@ -55,26 +64,59 @@ public class QuadraticThieve extends BaseFactor {
     }
 
     private void initSieveVector() {
-        for (int i = 0; i < vectorNumbers.length; i++) {
-            vectorNumbers[i] = new VectorNumber(N, primeBase, root);
+        numberDatas = new NumberData[sieveVectorBound];
+        for (int i = 0; i < numberDatas.length; i++) {
+            numberDatas[i] = new NumberData(N, primeBase, root);
         }
     }
 
-    private boolean sieve(long destination) {
-        boolean foundNewVectors = false;
+    private int sieve(long destination) {
+        int foundNewVectors = 0;
+        int maxDivisionsIndex = -1;
+        int maxDivisions = 0;
         for (int i = 0; i < primeBase.length; i++) {
             Wheel wheel = wheels[i];
 
-            while (wheel.testMove(destination)){
+            while (wheel.testMove(destination)) {
                 long position = wheel.move();
-                int index = (int) (position % SIEVE_VECTOR_BOUND);
-                if(vectorNumbers[index].sieve(i, position)){
-                    vectorDatas.add(vectorNumbers[index].getData());
-                    foundNewVectors = true;
+                int index = (int) (position % sieveVectorBound);
+                if (numberDatas[index].sieve(i, position)) {
+                    vectorDatas.add(numberDatas[index].getData());
+                    foundNewVectors++;
+                } else if (numberDatas[index].getDivisions() > maxDivisions) {
+                    maxDivisions = numberDatas[index].getDivisions();
+                    maxDivisionsIndex = index;
                 }
             }
         }
-        return foundNewVectors;
+        return foundNewVectors > 0 ? foundNewVectors : -maxDivisionsIndex;
+    }
+
+    private void searchForGiants(long position, int giantIndex) {
+        BigInteger giant = numberDatas[giantIndex].getRemindY();
+        BigInteger nextGiant = zero;
+        BigInteger x = root.
+                add(BigInteger.valueOf(position + giantIndex - sieveVectorBound)).
+                add(giant).
+                pow(2);
+        nextGiant = x.subtract(N);
+        if (!nextGiant.mod(giant).equals(zero)) {
+            throw new IllegalStateException("O.o");
+        }
+
+        nextGiant = nextGiant.divide(giant);
+
+        for (int i = 0; i < primeBase.length; i++) {
+            BigInteger prime = primeBase[i];
+            while (nextGiant.mod(prime).equals(zero)){
+                nextGiant = nextGiant.divide(prime);
+            }
+            if(nextGiant.equals(one)){
+                log("Found giant");
+
+                break;
+            }
+        }
     }
 
     private boolean tryToSolve() {
@@ -83,6 +125,7 @@ public class QuadraticThieve extends BaseFactor {
             return false;
         }
 
+        log("Building vectors");
         for (VectorData vectorData : vectorDatas) {
             vectorData.buildVector(primeBase);
         }

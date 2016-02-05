@@ -33,8 +33,10 @@ public class BaseFactor {
         if(!logsEnabled){
             return;
         }
-        logTime();
-        logInLine(params);
+        if(params.length > 0){
+            logTime();
+            logInLine(params);
+        }
         System.out.println();
     }
 

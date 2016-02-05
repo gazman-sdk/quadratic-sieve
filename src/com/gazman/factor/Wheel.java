@@ -1,5 +1,7 @@
 package com.gazman.factor;
 
+import com.gazman.math.MathUtils;
+
 import java.math.BigInteger;
 
 /**
@@ -14,36 +16,31 @@ public class Wheel {
         int target = N.mod(prime).intValue();
         this.prime = prime.intValue();
 
+
+        long[] flats = MathUtils.ressol(this.prime, target);
+
         int solutions = 0;
-        int solutionA = -1, solutionB = -1;
-        for (int i = 0; i < this.prime; i++) {
-            if ((i * i) % this.prime == target) {
+        for (int i = 0; i < flats.length; i++) {
+            if(flats[i] > -1){
                 solutions++;
-                switch (solutions) {
-                    case 1:
-                        solutionA = i;
-                        break;
-                    case 2:
-                        solutionB = i;
-                        break;
-                }
-                if (solutions == 2) {
-                    break;
-                }
             }
         }
 
         positions = new long[solutions];
-        if(solutions > 0){
-            positions[0] = solutionA - root.mod(prime).intValue();
-        }
-        if (solutions > 1) {
-            positions[1] = solutionB - root.mod(prime).intValue();
+        for (int i = 0; i < flats.length; i++) {
+            if(flats[i] > -1){
+                positions[i] = flats[i] - root.mod(prime).intValue();
+            }
         }
         for (int i = 0; i < solutions; i++) {
             if(positions[i] < 0){
                 positions[i] += this.prime;
             }
+        }
+        if(positions.length == 2 && positions[0] > positions[1]){
+            long tmp = positions[0];
+            positions[0] = positions[1];
+            positions[1] = tmp;
         }
     }
 
