@@ -28,4 +28,13 @@ public class VectorData {
             }
         }
     }
+
+    @Override
+    public String toString() {
+        String out = "";
+        for (int i = 0; i < vector.length; i++) {
+            out += vector[i] ? 1 : 0;
+        }
+        return out;
+    }
 }

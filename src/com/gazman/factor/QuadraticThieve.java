@@ -1,5 +1,6 @@
 package com.gazman.factor;
 
+import com.gazman.factor.matrix.BitMatrix;
 import com.gazman.math.MathUtils;
 import com.gazman.math.SqrRoot;
 
@@ -9,13 +10,12 @@ import java.util.ArrayList;
 /**
  * Created by Ilya Gazman on 1/27/2016.
  */
-public class QuadraticThieve extends BaseFactor {
+public class QuadraticThieve extends Logger {
     private static final int B_SMOOTH = 1000;
     private int sieveVectorBound;
     private BigInteger primeBase[];
     private ArrayList<VectorData> vectorDatas = new ArrayList<>();
     private BigInteger N;
-    private Matrix matrix = new Matrix();
     private NumberData numberDatas[];
     private Wheel wheels[] = new Wheel[B_SMOOTH];
     private BigInteger root;
@@ -23,7 +23,6 @@ public class QuadraticThieve extends BaseFactor {
     public void factor(BigInteger input) {
         N = input;
         root = SqrRoot.bigIntSqRootCeil(input);
-        matrix.setLogsEnabled(false);
 
         log("Building Prime Base");
         buildPrimeBase();
@@ -37,7 +36,6 @@ public class QuadraticThieve extends BaseFactor {
         log("Building wheels");
         initSieveWheels();
 
-
         log("Start searching");
         long position = 0;
         long step = sieveVectorBound;
@@ -45,13 +43,8 @@ public class QuadraticThieve extends BaseFactor {
         while (true) {
             NumberData.upgrade();
             position += step;
-            int newVectorsFromSieving = sieve(position);
-            if (newVectorsFromSieving < 0) {
-//                searchForGiants(position, newVectorsFromSieving * -1);
-            } else {
-                if (tryToSolve()) {
-                    break;
-                }
+            if (sieve(position) > 0 && tryToSolve()) {
+                break;
             }
         }
     }
@@ -92,33 +85,6 @@ public class QuadraticThieve extends BaseFactor {
         return foundNewVectors > 0 ? foundNewVectors : -maxDivisionsIndex;
     }
 
-    private void searchForGiants(long position, int giantIndex) {
-        BigInteger giant = numberDatas[giantIndex].getRemindY();
-        BigInteger nextGiant = zero;
-        BigInteger x = root.
-                add(BigInteger.valueOf(position + giantIndex - sieveVectorBound)).
-                add(giant).
-                pow(2);
-        nextGiant = x.subtract(N);
-        if (!nextGiant.mod(giant).equals(zero)) {
-            throw new IllegalStateException("O.o");
-        }
-
-        nextGiant = nextGiant.divide(giant);
-
-        for (int i = 0; i < primeBase.length; i++) {
-            BigInteger prime = primeBase[i];
-            while (nextGiant.mod(prime).equals(zero)){
-                nextGiant = nextGiant.divide(prime);
-            }
-            if(nextGiant.equals(one)){
-                log("Found giant");
-
-                break;
-            }
-        }
-    }
-
     private boolean tryToSolve() {
         if (vectorDatas.size() < B_SMOOTH) {
             log("Found vector", vectorDatas.size());
@@ -131,11 +97,14 @@ public class QuadraticThieve extends BaseFactor {
         }
 
         log("Solving...", vectorDatas.size());
-        matrix = new Matrix();
-        matrix.setLogsEnabled(false);
-        ArrayList<Object> solutions = matrix.solve(vectorDatas);
-        for (Object solution : solutions) {
-            if (testSolution((boolean[]) solution)) {
+
+        BitMatrix bitMatrix = new BitMatrix();
+        bitMatrix.setLogsEnabled(false);
+        ArrayList<ArrayList<VectorData>> solutions2 = bitMatrix.solve(vectorDatas);
+
+        for (ArrayList<VectorData> solution : solutions2) {
+            log("Testing solution");
+            if (testSolution(solution)) {
                 return true;
             }
         }
@@ -144,20 +113,16 @@ public class QuadraticThieve extends BaseFactor {
         return false;
     }
 
-    private boolean testSolution(boolean[] solutionVector) {
+    private boolean testSolution(ArrayList<VectorData> solutionVector) {
         BigInteger y = one;
         BigInteger x = one;
-        for (int i = 0; i < solutionVector.length; i++) {
-            if (solutionVector[i]) {
-                VectorData vectorData = vectorDatas.get(i);
-                y = y.multiply(vectorData.y);
-                x = x.multiply(vectorData.x);
-            }
+
+        for (VectorData vectorData : solutionVector) {
+            x = x.multiply(vectorData.x);
+            y = y.multiply(vectorData.y);
         }
 
-        //noinspection SuspiciousNameCombination
         y = SqrRoot.bigIntSqRootFloor(y);
-        x = SqrRoot.bigIntSqRootFloor(x);
         BigInteger gcd = N.gcd(x.subtract(y));
         if (!gcd.equals(one) && !gcd.equals(N)) {
             log("Solved");

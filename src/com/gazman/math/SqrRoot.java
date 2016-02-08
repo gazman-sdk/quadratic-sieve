@@ -13,28 +13,28 @@ public class SqrRoot {
     private static BigDecimal root = BigDecimal.valueOf(10).pow(PRECISION);
     private static BigInteger two = BigInteger.valueOf(2L);
 
-    public static BigDecimal bigDecimalSqRootFloor(BigInteger x)
+    public static BigDecimal bigDecimalSqRootFloor(BigInteger value)
             throws IllegalArgumentException {
-        BigInteger result = bigIntSqRootFloor(x.multiply(multiplier));
+        BigInteger result = bigIntSqRootFloor(value.multiply(multiplier));
         //noinspection BigDecimalMethodWithoutRoundingCalled
         return new BigDecimal(result).divide(root);
     }
 
-    public static BigInteger bigIntSqRootFloor(BigInteger x)
+    public static BigInteger bigIntSqRootFloor(BigInteger value)
             throws IllegalArgumentException {
-        if (checkTrivial(x)) {
-            return x;
+        if (checkTrivial(value)) {
+            return value;
         }
-        if (x.bitLength() < 64) { // Can be cast to long
-            double sqrt = Math.sqrt(x.longValue());
+        if (value.bitLength() < 64) { // Can be cast to long
+            double sqrt = Math.sqrt(value.longValue());
             return BigInteger.valueOf((long) sqrt);
         }
-        // starting with y = x / 2 avoids magnitude issues with x squared
-        BigInteger y = x.divide(two);
-        BigInteger value = x.divide(y);
-        while (y.compareTo(value) > 0) {
-            y = value.add(y).divide(two);
-            value = x.divide(y);
+        // starting with y = value / 2 avoids magnitude issues with value squared
+        BigInteger y = value.divide(two);
+        BigInteger result = value.divide(y);
+        while (y.compareTo(result) > 0) {
+            y = result.add(y).divide(two);
+            result = value.divide(y);
         }
         return y;
     }

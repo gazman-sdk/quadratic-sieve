@@ -29,8 +29,8 @@ public class NumberData {
     public boolean sieve(int primeIndex, long position) {
         if (version < generalVersion) {
             divisions = 0;
-            originalX = root.add(BigInteger.valueOf(position)).pow(2);
-            originalY = originalX.subtract(N);
+            originalX = root.add(BigInteger.valueOf(position));
+            originalY = originalX.pow(2).subtract(N);
             y = originalY;
             version = generalVersion;
         }

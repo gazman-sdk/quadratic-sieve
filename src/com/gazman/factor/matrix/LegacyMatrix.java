@@ -1,11 +1,14 @@
-package com.gazman.factor;
+package com.gazman.factor.matrix;
+
+import com.gazman.factor.Logger;
+import com.gazman.factor.VectorData;
 
 import java.util.ArrayList;
 
 /**
  * Created by Ilya Gazman on 1/30/2016.
  */
-public class Matrix extends BaseFactor {
+public class LegacyMatrix extends Logger {
     private boolean[][] matrix;
     private boolean[][] solutionMatrix;
 
@@ -59,6 +62,10 @@ public class Matrix extends BaseFactor {
         }
     }
 
+    public void printSolution() {
+        printMatrix(solutionMatrix);
+    }
+
     private void printMatrix(boolean[][] matrix) {
         for (int i = 0; i < matrix.length; i++) {
             logInLine(i + "> [");
@@ -82,14 +89,14 @@ public class Matrix extends BaseFactor {
     }
 
     private void swap(boolean[][] matrix, int i, int j) {
-        if(logsEnabled){
+        if (logsEnabled) {
             log("Swap before", i, j, getMatrixName(matrix));
             printMatrix(matrix);
         }
         boolean[] tmp = matrix[j];
         matrix[j] = matrix[i];
         matrix[i] = tmp;
-        if(logsEnabled){
+        if (logsEnabled) {
             log("Swap after", i, j, getMatrixName(matrix));
             printMatrix(matrix);
         }
@@ -118,14 +125,14 @@ public class Matrix extends BaseFactor {
     }
 
     private void xor(boolean[][] matrix, int i, int j) {
-        if(logsEnabled){
+        if (logsEnabled) {
             log("xor befor", i, j, getMatrixName(matrix));
             printMatrix(matrix);
         }
         for (int l = 0; l < matrix[j].length; l++) {
             matrix[j][l] = matrix[j][l] != matrix[i][l];
         }
-        if(logsEnabled){
+        if (logsEnabled) {
             log("xor after", i, j, getMatrixName(matrix));
             printMatrix(matrix);
         }

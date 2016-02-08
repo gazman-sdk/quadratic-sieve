@@ -8,9 +8,9 @@ import java.util.List;
 /**
  * Created by Ilya Gazman on 1/11/2016.
  */
-public class BaseFactor {
+public class Logger {
 
-    private long startingTime = System.currentTimeMillis();
+    private static long startingTime = System.currentTimeMillis();
     protected BigInteger zero = BigInteger.ZERO;
     protected BigInteger one = BigInteger.ONE;
     protected BigInteger minus_one = BigInteger.valueOf(-1);
@@ -29,11 +29,18 @@ public class BaseFactor {
 
     private String emptyChar = (new char[1])[0] + "";
 
+    protected void forceLog(Object... params){
+        boolean logsEnabled = this.logsEnabled;
+        this.logsEnabled = true;
+        log(params);
+        this.logsEnabled = logsEnabled;
+    }
+
     protected void log(Object... params) {
-        if(!logsEnabled){
+        if (!logsEnabled) {
             return;
         }
-        if(params.length > 0){
+        if (params.length > 0) {
             logTime();
             logInLine(params);
         }
@@ -41,25 +48,25 @@ public class BaseFactor {
     }
 
     private void logTime() {
-        System.out.print((System.currentTimeMillis() - startingTime)/ 1000 + ": ");
+        System.out.print((System.currentTimeMillis() - startingTime) / 1000 + ": ");
     }
 
-    protected void logInLine(Object...params) {
-        if(!logsEnabled){
+    protected void logInLine(Object... params) {
+        if (!logsEnabled) {
             return;
         }
         for (Object param : params) {
             if (param instanceof Number) {
                 printNumber(param);
-            }
-            else if(param.getClass().isArray()){
+            } else if (param instanceof Boolean) {
+                System.out.print((Boolean) param ? 1 : 0);
+            } else if (param.getClass().isArray()) {
                 System.out.print("[");
                 for (int i = 0; i < Array.getLength(param); i++) {
                     System.out.print(Array.get(param, i) + " ");
                 }
                 System.out.print("]");
-            }
-            else if(param instanceof List){
+            } else if (param instanceof List) {
                 System.out.print("[");
                 List list = (List) param;
                 for (int i = 0; i < list.size(); i++) {
@@ -67,8 +74,7 @@ public class BaseFactor {
                     System.out.print(o + (i < list.size() - 1 ? ", " : ""));
                 }
                 System.out.print("]");
-            }
-            else{
+            } else {
                 System.out.print(param + " ");
             }
         }

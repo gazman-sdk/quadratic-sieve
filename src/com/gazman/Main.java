@@ -5,7 +5,7 @@ import com.gazman.factor.*;
 import java.math.BigInteger;
 import java.util.Random;
 
-public class Main extends BaseFactor {
+public class Main extends Logger {
 
     private static Random random = new Random();
 
@@ -14,12 +14,12 @@ public class Main extends BaseFactor {
     }
 
     private void init() {
-        int length = 70;
+        int length = 40;
         BigInteger a = BigInteger.probablePrime(length, random);
         BigInteger b = BigInteger.probablePrime(length, random);
 
-//        a = BigInteger.valueOf(241);
-//        b = BigInteger.valueOf(173);
+//        a = BigInteger.valueOf(179);
+//        b = BigInteger.valueOf(149);
 
         BigInteger input = a.multiply(b);
         log(a, b);
