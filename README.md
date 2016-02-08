@@ -44,7 +44,8 @@ V.16
 
 This version is all about matrixes, I added two new versions of it. The <b>HashMatrix</b>, it supposed to take less memory and have better performance as it doesn't iterate over the zeroes in the matrix, but in practice the hashing operation is very expensive and the new BitMatrix perform much better, both in terms of memory and performance. With <b>BitMatrix</b> I been able to solve 5K B bound with about 5K rows in minutes. 
 
-Now there is a new challenge, after the solution been calculated there is need to multiply the solution rows and then square them in order to get the Y value for gcd, for X is a bit easier as I keep it in original form, so no need to square it.
+Now there is a new challenge, after the solution been calculated there is need to multiply the solution rows and then square them in order to get the Y value for gcd, for X is a bit easier as I keep it in original form, so no need to square it. 
+For values over 150 bit length, it takes more then minutes to squere. 
 
 
 
