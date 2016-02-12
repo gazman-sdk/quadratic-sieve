@@ -30,7 +30,7 @@ public class SqrRoot {
             return BigInteger.valueOf((long) sqrt);
         }
         // starting with y = value / 2 avoids magnitude issues with value squared
-        BigInteger y = value.divide(two);
+        BigInteger y = two.pow(value.bitLength() / 2);
         BigInteger result = value.divide(y);
         while (y.compareTo(result) > 0) {
             y = result.add(y).divide(two);

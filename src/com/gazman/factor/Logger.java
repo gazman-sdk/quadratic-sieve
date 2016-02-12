@@ -81,7 +81,7 @@ public class Logger {
     }
 
     private void printNumber(Object value) {
-        int minLength = 4;
+        int minLength = 10;
         String out = value.toString() + " ";
         if (out.length() < minLength) {
             out = out + new String(new char[minLength - out.length()]).replaceAll(emptyChar, " ");

@@ -1,7 +1,10 @@
 package com.gazman;
 
 import com.gazman.factor.*;
+import com.gazman.math.MathUtils;
+import com.gazman.math.SqrRoot;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Random;
 
@@ -14,12 +17,12 @@ public class Main extends Logger {
     }
 
     private void init() {
-        int length = 40;
+        int length = 50;
         BigInteger a = BigInteger.probablePrime(length, random);
         BigInteger b = BigInteger.probablePrime(length, random);
+//        a = BigInteger.valueOf(139);
+//        b = BigInteger.valueOf(191);
 
-//        a = BigInteger.valueOf(179);
-//        b = BigInteger.valueOf(149);
 
         BigInteger input = a.multiply(b);
         log(a, b);

@@ -1,6 +1,9 @@
 package com.gazman.math;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
 
 /**
  * Created by Ilya Gazman on 2/1/2016.
@@ -14,6 +17,11 @@ public class MathUtils {
         }
         BigInteger exponent = p.subtract(BigInteger.ONE).divide(tow);
         return x.modPow(exponent, p).equals(BigInteger.ONE);
+    }
+
+    public static double log(double x, double base)
+    {
+        return Math.log(x) / Math.log(base);
     }
 
     /**
@@ -114,6 +122,29 @@ public class MathUtils {
             }
         }
         return v;
+    }
+
+    public static long ITER = 1000;
+    public static MathContext context = new MathContext( 100 );
+    public static BigDecimal ln(BigDecimal x) {
+        if (x.equals(BigDecimal.ONE)) {
+            return BigDecimal.ZERO;
+        }
+
+        x = x.subtract(BigDecimal.ONE);
+        BigDecimal ret = new BigDecimal(ITER + 1);
+        for (long i = ITER; i >= 0; i--) {
+            BigDecimal N = new BigDecimal(i / 2 + 1).pow(2);
+            N = N.multiply(x, context);
+            ret = N.divide(ret, context);
+
+            N = new BigDecimal(i + 1);
+            ret = ret.add(N, context);
+
+        }
+
+        ret = x.divide(ret, context);
+        return ret;
     }
 
 }

@@ -14,7 +14,6 @@ public class NumberData {
     private BigInteger[] primeBase;
     private BigInteger root;
     private BigInteger y;
-    private int divisions;
 
     public NumberData(BigInteger N, BigInteger[] primeBase, BigInteger root) {
         this.N = N;
@@ -26,33 +25,28 @@ public class NumberData {
         generalVersion++;
     }
 
-    public boolean sieve(int primeIndex, long position) {
+    public int sieve(int primeIndex, long position) {
         if (version < generalVersion) {
-            divisions = 0;
             originalX = root.add(BigInteger.valueOf(position));
             originalY = originalX.pow(2).subtract(N);
             y = originalY;
             version = generalVersion;
         }
 
+        int power = 0;
         BigInteger prime = primeBase[primeIndex];
         do {
+            if(!y.mod(prime).equals(BigInteger.ZERO)){
+                throw new IllegalStateException(y + " is not divided by " + prime);
+            }
             y = y.divide(prime);
-            divisions++;
+            power++;
         } while (y.mod(prime).equals(BigInteger.ZERO));
 
-        return y.equals(BigInteger.ONE);
-    }
-
-    public BigInteger getRemindY(){
-        return version < generalVersion || y.equals(BigInteger.ONE)? null : y;
+        return y.equals(BigInteger.ONE) ? power : -power;
     }
 
     public VectorData getData() {
         return new VectorData(originalX, originalY);
-    }
-
-    public int getDivisions() {
-        return divisions;
     }
 }

@@ -18,6 +18,7 @@ public class BitMatrix extends Logger {
 
     public ArrayList<ArrayList<VectorData>> solve(ArrayList<VectorData> vectorDatas) {
         this.vectorDatas = vectorDatas;
+        HashMap<Integer, Object> map = new HashMap<>();
         rows = new BigInteger[vectorDatas.size()];
         solutionRows = new BigInteger[vectorDatas.size()];
         for (int i = 0; i < rows.length; i++) {
@@ -25,12 +26,9 @@ public class BitMatrix extends Logger {
             solutionRows[i] = BigInteger.ZERO.setBit(i);
         }
 
-        log("init");
-        printMatrix(rows);
-        log("Init solution");
-        printMatrix(solutionRows);
 
-        HashMap<Integer, Object> map = new HashMap<>();
+        log("init complete");
+
         for (int column = 0; column < rows.length; column++) {
             int selectedRow = -1;
             for (int row = 0; row < rows.length; row++) {
@@ -43,27 +41,18 @@ public class BitMatrix extends Logger {
                     continue;
                 }
                 if (selectedRow != -1) {
-                    log("xor", selectedRow, row);
                     xor(row, selectedRow);
-                    printMatrix(rows);
-                    log("Solution");
-                    printMatrix(solutionRows);
                 }
             }
             for (int row = 0; row < selectedRow; row++) {
                 if (!rows[row].testBit(column)) {
                     continue;
                 }
-                log("xor from bottom", selectedRow, row);
                 xor(row, selectedRow);
-                printMatrix(rows);
-                log("Solution");
-                printMatrix(solutionRows);
             }
         }
 
-        log("Complete");
-        printMatrix(rows);
+        log("Extracting solutions");
 
         ArrayList<ArrayList<VectorData>> solutions = new ArrayList<>();
         for (int i = 0; i < rows.length; i++) {
@@ -71,6 +60,8 @@ public class BitMatrix extends Logger {
                 solutions.add(createSolution(i));
             }
         }
+
+        log("Done");
 
         return solutions;
     }
