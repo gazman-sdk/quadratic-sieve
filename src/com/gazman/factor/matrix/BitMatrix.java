@@ -5,6 +5,7 @@ import com.gazman.factor.VectorData;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 
 /**
@@ -12,18 +13,19 @@ import java.util.HashMap;
  */
 public class BitMatrix extends Logger {
 
-    private BigInteger rows[];
-    private BigInteger solutionRows[];
+    private BitSet rows[];
+    private BitSet solutionRows[];
     private ArrayList<VectorData> vectorDatas;
 
     public ArrayList<ArrayList<VectorData>> solve(ArrayList<VectorData> vectorDatas) {
         this.vectorDatas = vectorDatas;
         HashMap<Integer, Object> map = new HashMap<>();
-        rows = new BigInteger[vectorDatas.size()];
-        solutionRows = new BigInteger[vectorDatas.size()];
+        rows = new BitSet[vectorDatas.size()];
+        solutionRows = new BitSet[vectorDatas.size()];
         for (int i = 0; i < rows.length; i++) {
-            rows[i] = new BigInteger(vectorDatas.get(i).toString(), 2);
-            solutionRows[i] = BigInteger.ZERO.setBit(i);
+            rows[i] = vectorDatas.get(i).vector;
+            solutionRows[i] = new BitSet();
+            solutionRows[i].set(i);
         }
 
 
@@ -32,7 +34,7 @@ public class BitMatrix extends Logger {
         for (int column = 0; column < rows.length; column++) {
             int selectedRow = -1;
             for (int row = 0; row < rows.length; row++) {
-                if (!rows[row].testBit(column)) {
+                if (!rows[row].get(column)) {
                     continue;
                 }
                 if (selectedRow == -1 && !map.containsKey(row)) {
@@ -45,7 +47,7 @@ public class BitMatrix extends Logger {
                 }
             }
             for (int row = 0; row < selectedRow; row++) {
-                if (!rows[row].testBit(column)) {
+                if (!rows[row].get(column)) {
                     continue;
                 }
                 xor(row, selectedRow);
@@ -56,7 +58,7 @@ public class BitMatrix extends Logger {
 
         ArrayList<ArrayList<VectorData>> solutions = new ArrayList<>();
         for (int i = 0; i < rows.length; i++) {
-            if (rows[i].equals(BigInteger.ZERO)) {
+            if (rows[i].isEmpty()) {
                 solutions.add(createSolution(i));
             }
         }
@@ -69,7 +71,7 @@ public class BitMatrix extends Logger {
     private ArrayList<VectorData> createSolution(int row) {
         ArrayList<VectorData> solution = new ArrayList<>();
         for (int column = 0; column < rows.length; column++) {
-            if (solutionRows[row].testBit(column)) {
+            if (solutionRows[row].get(column)) {
                 solution.add(vectorDatas.get(column));
             }
         }
@@ -98,7 +100,7 @@ public class BitMatrix extends Logger {
     }
 
     private void xor(int rowA, int rowB) {
-        rows[rowA] = rows[rowA].xor(rows[rowB]);
-        solutionRows[rowA] = solutionRows[rowA].xor(solutionRows[rowB]);
+        rows[rowA].xor(rows[rowB]);
+        solutionRows[rowA].xor(solutionRows[rowB]);
     }
 }

@@ -17,11 +17,16 @@ public class Main extends Logger {
     }
 
     private void init() {
-        int length = 50;
+        int length = 40;
         BigInteger a = BigInteger.probablePrime(length, random);
         BigInteger b = BigInteger.probablePrime(length, random);
 //        a = BigInteger.valueOf(139);
 //        b = BigInteger.valueOf(191);
+//        a = BigInteger.valueOf(900289138583L);
+//        b = BigInteger.valueOf(633491976539L);
+
+//        a = BigInteger.valueOf(648336205039L);
+//        b = BigInteger.valueOf(985468814843L);
 
 
         BigInteger input = a.multiply(b);

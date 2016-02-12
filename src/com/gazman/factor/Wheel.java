@@ -59,6 +59,10 @@ public class Wheel {
         return log * powers;
     }
 
+    public int getPowers() {
+        return powers;
+    }
+
     public BigInteger getDivider(){
         return BigInteger.valueOf(prime).pow(powers);
     }
