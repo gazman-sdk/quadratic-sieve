@@ -64,8 +64,8 @@ Now the bottleneck is finally where it should be, in the process of finding the 
 
 The next tasks are:
 
-Write a better description for the algorithm, as at this point I probably the only one who can understand it’s description…
-Add Big primes optimization
+ - Write a better description for the algorithm, as at this point I probably the only one who can understand it’s description…
+ - Add Big primes optimization
 
 
 
