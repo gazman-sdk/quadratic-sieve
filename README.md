@@ -1,6 +1,8 @@
 # quadratic-sieve
 Quadratic sieve implementation in Java
 
+<B>As of version 2.0 it can factor 60 digits number in 120 sec and solve matrixed with the size of 100,000x100,000 in 15 min.</B>
+
 This is java implemintation of the [Quadratic Sieve](https://en.wikipedia.org/wiki/Quadratic_sieve) algorithm.
 
 The major improvement over the regular sieve is the prime wheels, those allows me to avoid the computision of values that are not part of B-Smooth vector.
@@ -39,13 +41,32 @@ V1.5
 
 At this point the bottleneck is in solving the matrix, it turns out that the current implementation doing it in O(N^4) so it's taking hours to solve 10K vectors.
 
-V.16
+V1.6
 ----------
 
 This version is all about matrixes, I added two new versions of it. The <b>HashMatrix</b>, it supposed to take less memory and have better performance as it doesn't iterate over the zeroes in the matrix, but in practice the hashing operation is very expensive and the new BitMatrix perform much better, both in terms of memory and performance. With <b>BitMatrix</b> I been able to solve 5K B bound with about 5K rows in minutes. 
 
 Now there is a new challenge, after the solution been calculated there is need to multiply the solution rows and then square them in order to get the Y value for gcd, for X is a bit easier as I keep it in original form, so no need to square it. 
 For values over 150 bit length, it takes more then minutes to squere. 
+
+V2.0
+----------
+
+In this version I discovered the power of logarithms. Instead of dividing you can sum the logs in order to tell if some value is divisible by others.
+
+I also found the bottleneck of bitMatrix, it turns out that 90% of the calculation time went on initializing, so I completely throw it away. Instead BigInteger I moved to BitSet, it supposed to be much faster how ever I don’t use the BitSet.nextSet method as it will prevent me from using xor, so it makes them pretty much the same in performance, how ever the BitSet allows me to initialize it with maximum bit size, and this makes a big difference, it will used less memory.
+
+So now I build the vectors during the searching loop process and when I come to calculation part, I already got the bitMatrix almost initialized. This allows me to solve matrixes with the size of 100,000 rows in about 15 min.
+
+The other problem that I had is the solution extraction, I used babilon method for root squaring and it took hours. Now I did a very small improvement to it, I changed the first guess of the square to be 2, power half the bit size of the number. This reduced the calculation time from hours to less than a millisecond, I been amazed to see this, how ever I suspect that the difference will not be as great with numbers that don’t got an integer square. But it’s not the case here, and the extraction works now in seconds. It yet might be a problem for numbers bigger than 60 decimal digits.
+
+Now the bottleneck is finally where it should be, in the process of finding the B-Smoothe vectors.
+
+The next tasks are:
+
+Write a better description for the algorithm, as at this point I probably the only one who can understand it’s description…
+Add Big primes optimization
+
 
 
 
