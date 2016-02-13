@@ -12,14 +12,16 @@ import java.util.BitSet;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 100000;
-    public static final double MINIMUM_LOG = 0.00000001;
+    private static final int B_SMOOTH = 10000;
+    private static final double MINIMUM_LOG = 0.0000001;
+    private  double MINIMUM_ESTIMATED_LOG = 2;
     private int sieveVectorBound;
     private BigInteger primeBase[];
     private ArrayList<VectorData> vectorDatas = new ArrayList<>();
     private BigInteger N;
     private Wheel wheels[] = new Wheel[B_SMOOTH];
     private BigInteger root;
+    private double baseLog;
 
     public void factor(BigInteger input) {
         log("Factoring started");
@@ -41,11 +43,18 @@ public class QuadraticThieve extends Logger {
         long step = sieveVectorBound;
 
         while (true) {
+            baseLog = calculateBaseLog(position);
             position += step;
+            MINIMUM_ESTIMATED_LOG = calculateBaseLog(position) - baseLog;
             if (sieve(position) > 0 && tryToSolve()) {
                 break;
             }
         }
+    }
+
+    private double calculateBaseLog(long position) {
+        double target = root.add(BigInteger.valueOf(position)).pow(2).subtract(N).doubleValue();
+        return Math.log(target);
     }
 
     private void initSieveWheels() {
@@ -58,32 +67,53 @@ public class QuadraticThieve extends Logger {
     private int sieve(long destination) {
         int newVectorsFound = 0;
         Double[] logs = new Double[sieveVectorBound];
+        Double[] trueLogs = new Double[sieveVectorBound];
         BitSet[] vectors = new BitSet[sieveVectorBound];
 
         for (int i = 0; i < primeBase.length; i++) {
             Wheel wheel = wheels[i];
-//            wheel.savePosition();
+            wheel.savePosition();
             while (wheel.testMove(destination)) {
-                double log = wheel.getLog();
+                double log = wheel.nextLog();
                 long position = wheel.move();
                 int index = (int) (position % sieveVectorBound);
-                if(logs[index] == null) {
-                    BigInteger target = root.add(BigInteger.valueOf(position)).pow(2).subtract(N);
-                    logs[index] = Math.log(target.doubleValue());
-                    vectors[index] = new BitSet();
+                if (logs[index] == null) {
+                    logs[index] = 0d;
                 }
-                logs[index] -= log;
-                if(wheel.getPowers() % 2 != 0){
-                    vectors[index].set(i);
-                }
+                logs[index] += log;
             }
-//            wheel.restorePosition();
+            wheel.restorePosition();
         }
 
-        for (int i = 0; i < primeBase.length; i++) {
-            if (logs[i] != null && logs[i] < MINIMUM_LOG) {
-                vectorDatas.add(new VectorData(vectors[i], i + destination - sieveVectorBound));
-                newVectorsFound++;
+        for (int i = primeBase.length - 1; i >= 0; i--) {
+            Wheel wheel = wheels[i];
+            while (wheel.testMove(destination)) {
+                wheel.nextLog();
+                long position = wheel.move();
+                int index = (int) (position % sieveVectorBound);
+                if (logs[index] == null){
+                    continue;
+                }
+                if (trueLogs[index] == null) {
+                    if (baseLog - logs[index] > MINIMUM_ESTIMATED_LOG) {
+                        continue;
+                    }
+                    double trueLog = calculateBaseLog(position);
+                    trueLogs[index] = trueLog;
+                }
+
+                if (trueLogs[index] - logs[index] > MINIMUM_LOG) {
+                    continue;
+                }
+
+                if (vectors[index] == null) {
+                    vectors[index] = new BitSet(i);
+                    vectorDatas.add(new VectorData(vectors[index], index + destination - sieveVectorBound));
+                    newVectorsFound++;
+                }
+                if (wheel.getPowers() % 2 != 0) {
+                    vectors[index].set(i);
+                }
             }
         }
 
@@ -91,19 +121,17 @@ public class QuadraticThieve extends Logger {
     }
 
     private boolean tryToSolve() {
+        log("Found", vectorDatas.size());
         if (vectorDatas.size() < B_SMOOTH) {
-            log("Found", vectorDatas.size());
             return false;
         }
 
-        log("Solving...", vectorDatas.size());
-
         BitMatrix bitMatrix = new BitMatrix();
-//        bitMatrix.setLogsEnabled(false);
-        ArrayList<ArrayList<VectorData>> solutions2 = bitMatrix.solve(vectorDatas);
+        ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(vectorDatas);
 
-        for (ArrayList<VectorData> solution : solutions2) {
-            log("Testing solution");
+        for (int i = 0; i < solutions.size(); i++) {
+            ArrayList<VectorData> solution = solutions.get(i);
+            log("Testing solution", (i + 1) + "/" + solutions.size());
             if (testSolution(solution)) {
                 return true;
             }
@@ -139,8 +167,6 @@ public class QuadraticThieve extends Logger {
     private void buildPrimeBase() {
         primeBase = new BigInteger[B_SMOOTH];
         BigInteger prime = BigInteger.ONE;
-
-//        prime = prime.nextProbablePrime();
 
         for (int i = 0; i < B_SMOOTH; ) {
             prime = prime.nextProbablePrime();

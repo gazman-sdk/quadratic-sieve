@@ -7,12 +7,16 @@ import java.math.BigInteger;
 /**
  * Created by Ilya Gazman on 2/9/2016.
  */
-public class MutableInteger {
+public class MutableInteger implements Cloneable{
     private int[] digits;
     private int[] delta;
     private final int[] deltaDelta;
     private static final BigInteger TOW = BigInteger.valueOf(2);
     private int base;
+
+    private MutableInteger(int[] deltaDelta){
+        this.deltaDelta = deltaDelta;
+    }
 
     public MutableInteger(int base, BigInteger root, BigInteger N) {
         this.base = base;
@@ -104,5 +108,15 @@ public class MutableInteger {
         }
 
         return result.toString();
+    }
+
+    @SuppressWarnings("CloneDoesntCallSuperClone")
+    @Override
+    public MutableInteger clone() {
+        MutableInteger mutableInteger = new MutableInteger(deltaDelta);
+        mutableInteger.digits = digits.clone();
+        mutableInteger.delta = delta.clone();
+        mutableInteger.base = base;
+        return mutableInteger;
     }
 }

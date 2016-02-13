@@ -15,6 +15,7 @@ public class Wheel {
     private long[] savedPosition;
     private int savedCount;
     private MutableInteger mutableInteger[] = new MutableInteger[2];
+    private MutableInteger savedMutableInteger[];
     private int powers;
 
     public void init(BigInteger prime, BigInteger N, BigInteger root) {
@@ -53,7 +54,7 @@ public class Wheel {
         }
     }
 
-    public double getLog() {
+    public double nextLog() {
         powers = mutableInteger[count].nextPower();
 //        powers = 1;
         return log * powers;
@@ -61,14 +62,6 @@ public class Wheel {
 
     public int getPowers() {
         return powers;
-    }
-
-    public BigInteger getDivider(){
-        return BigInteger.valueOf(prime).pow(powers);
-    }
-
-    public MutableInteger getMutableInteger() {
-        return mutableInteger[count];
     }
 
     public long move() {
@@ -83,21 +76,24 @@ public class Wheel {
     }
 
     public void savePosition() {
-        savedCount = count;
         savedPosition = positions.clone();
+        savedMutableInteger = new MutableInteger[mutableInteger.length];
+        for (int i = 0; i < mutableInteger.length; i++) {
+            if(mutableInteger[i] != null){
+                savedMutableInteger[i] = mutableInteger[i].clone();
+            }
+        }
+        savedCount = count;
     }
 
     public void restorePosition() {
         positions = savedPosition.clone();
+        mutableInteger = savedMutableInteger;
         count = savedCount;
     }
 
     @Override
     public String toString() {
         return prime + "";
-    }
-
-    public int getPrime() {
-        return prime;
     }
 }

@@ -48,7 +48,19 @@ public class Logger {
     }
 
     private void logTime() {
-        System.out.print((System.currentTimeMillis() - startingTime) / 1000 + ": ");
+        long time = System.currentTimeMillis() - startingTime;
+        long seconds = time / 1000;
+        long milliseconds = time - seconds * 1000;
+        String millisecondsString = milliseconds + "";
+        switch (millisecondsString.length()){
+            case 1:
+                millisecondsString = "00" + millisecondsString;
+                break;
+            case 2:
+                millisecondsString = "0" + millisecondsString;
+                break;
+        }
+        System.out.print(seconds + "." + millisecondsString + ": ");
     }
 
     protected void logInLine(Object... params) {
@@ -83,9 +95,14 @@ public class Logger {
     private void printNumber(Object value) {
         int minLength = 10;
         String out = value.toString() + " ";
-        if (out.length() < minLength) {
-            out = out + new String(new char[minLength - out.length()]).replaceAll(emptyChar, " ");
-        }
+        out = updateLength(out, minLength);
         System.out.print(out);
+    }
+
+    private String updateLength(String input, int minLength) {
+        if (input.length() < minLength) {
+            input = input + new String(new char[minLength - input.length()]).replaceAll(emptyChar, " ");
+        }
+        return input;
     }
 }

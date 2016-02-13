@@ -3,7 +3,6 @@ package com.gazman.factor.matrix;
 import com.gazman.factor.Logger;
 import com.gazman.factor.VectorData;
 
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -18,6 +17,8 @@ public class BitMatrix extends Logger {
     private ArrayList<VectorData> vectorDatas;
 
     public ArrayList<ArrayList<VectorData>> solve(ArrayList<VectorData> vectorDatas) {
+        log("Preparing to solve...");
+
         this.vectorDatas = vectorDatas;
         HashMap<Integer, Object> map = new HashMap<>();
         rows = new BitSet[vectorDatas.size()];
@@ -28,8 +29,7 @@ public class BitMatrix extends Logger {
             solutionRows[i].set(i);
         }
 
-
-        log("init complete");
+        log("Solving...");
 
         for (int column = 0; column < rows.length; column++) {
             int selectedRow = -1;
@@ -76,27 +76,6 @@ public class BitMatrix extends Logger {
             }
         }
         return solution;
-    }
-
-    private void printMatrix(BigInteger rows[]) {
-        if (!logsEnabled) {
-            return;
-        }
-        for (int i = 0; i < rows.length; i++) {
-            printRow(rows, i);
-        }
-        log();
-    }
-
-    private void printRow(BigInteger[] rows, int rowIndex) {
-        if (!logsEnabled) {
-            return;
-        }
-        BigInteger row = rows[rowIndex];
-        for (int i = 0; i < rows.length; i++) {
-            logInLine(row.testBit(i) ? 1 : 0);
-        }
-        log();
     }
 
     private void xor(int rowA, int rowB) {
