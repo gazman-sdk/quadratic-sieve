@@ -12,16 +12,19 @@ import java.util.BitSet;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 10000;
+    private static final int B_SMOOTH = 10;
     private static final double MINIMUM_LOG = 0.0000001;
-    private  double MINIMUM_ESTIMATED_LOG = 2;
+    private double minimumPrimeLog;
     private int sieveVectorBound;
     private BigInteger primeBase[];
-    private ArrayList<VectorData> vectorDatas = new ArrayList<>();
+    private ArrayList<VectorData> bigPrimeVectores = new ArrayList<>();
+    private ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
     private BigInteger N;
     private Wheel wheels[] = new Wheel[B_SMOOTH];
     private BigInteger root;
     private double baseLog;
+    private int bSmoothFound;
+    private int bigPrimesFound;
 
     public void factor(BigInteger input) {
         log("Factoring started");
@@ -32,6 +35,7 @@ public class QuadraticThieve extends Logger {
         buildPrimeBase();
         BigInteger highestPrime = primeBase[primeBase.length - 1];
         sieveVectorBound = highestPrime.intValue();
+        minimumPrimeLog = Math.log(highestPrime.pow(2).doubleValue());
         log("Biggest prime is", highestPrime);
         log();
 
@@ -45,9 +49,23 @@ public class QuadraticThieve extends Logger {
         while (true) {
             baseLog = calculateBaseLog(position);
             position += step;
-            MINIMUM_ESTIMATED_LOG = calculateBaseLog(position) - baseLog;
-            if (sieve(position) > 0 && tryToSolve()) {
+            boolean sieve = sieve(position);
+            log("Processed", position, "B-Smooth found", bSmoothFound, "Big primes found", bigPrimesFound);
+            if (sieve && tryToSolve()) {
                 break;
+            }
+            if(position > step){
+                for (VectorData bigPrimeVectore : bigPrimeVectores) {
+                    if (!bigPrimeVectore.actualValue.isProbablePrime(10000)) {
+                        for (int i = 3; i < 10 * 1000 * 1000; i += 2) {
+                            if (bigPrimeVectore.actualValue.mod(BigInteger.valueOf(i)).equals(BigInteger.ZERO)) {
+                                log(i);
+                            }
+                        }
+                        throw new IllegalStateException("prime is not a prime " + bigPrimeVectore.actualValue + " " + bigPrimeVectore.position);
+                    }
+                }
+                return;
             }
         }
     }
@@ -64,11 +82,11 @@ public class QuadraticThieve extends Logger {
         }
     }
 
-    private int sieve(long destination) {
-        int newVectorsFound = 0;
+    private boolean sieve(long destination) {
+        boolean vectorsFound = false;
         Double[] logs = new Double[sieveVectorBound];
         Double[] trueLogs = new Double[sieveVectorBound];
-        BitSet[] vectors = new BitSet[sieveVectorBound];
+        VectorData[] vectors = new VectorData[sieveVectorBound];
 
         for (int i = 0; i < primeBase.length; i++) {
             Wheel wheel = wheels[i];
@@ -91,43 +109,61 @@ public class QuadraticThieve extends Logger {
                 wheel.nextLog();
                 long position = wheel.move();
                 int index = (int) (position % sieveVectorBound);
-                if (logs[index] == null){
+                if (logs[index] == null) {
                     continue;
                 }
                 if (trueLogs[index] == null) {
-                    if (baseLog - logs[index] > MINIMUM_ESTIMATED_LOG) {
+                    if (baseLog - logs[index] > minimumPrimeLog) {
                         continue;
                     }
                     double trueLog = calculateBaseLog(position);
                     trueLogs[index] = trueLog;
                 }
 
-                if (trueLogs[index] - logs[index] > MINIMUM_LOG) {
+                if (trueLogs[index] - logs[index] > minimumPrimeLog) {
                     continue;
                 }
 
+                boolean bigPrime = trueLogs[index] - logs[index] > MINIMUM_LOG;
+
                 if (vectors[index] == null) {
-                    vectors[index] = new BitSet(i);
-                    vectorDatas.add(new VectorData(vectors[index], index + destination - sieveVectorBound));
-                    newVectorsFound++;
+                    vectors[index] = new VectorData(new BitSet(i), index + destination - sieveVectorBound);
+                    if (bigPrime) {
+                        bigPrimeVectores.add(vectors[index]);
+                        bigPrimesFound++;
+                    } else {
+                        bSmoothVectors.add(vectors[index]);
+                        bSmoothFound++;
+                    }
+                    vectorsFound = true;
                 }
                 if (wheel.getPowers() % 2 != 0) {
-                    vectors[index].set(i);
+                    vectors[index].vector.set(i);
+                }
+                if (bigPrime) {
+                    if (vectors[index].actualValue == null) {
+                        BigInteger savedX = root.add(BigInteger.valueOf(vectors[index].position));
+                        vectors[index].actualValue = savedX.pow(2).subtract(N);
+                    }
+                    BigInteger divider = BigInteger.valueOf(wheel.getPrime()).pow(wheel.getPowers());
+                    if (!vectors[index].actualValue.mod(divider).equals(BigInteger.ZERO)) {
+                        throw new IllegalStateException("O.o");
+                    }
+                    vectors[index].actualValue = vectors[index].actualValue.divide(divider);
                 }
             }
         }
 
-        return newVectorsFound;
+        return vectorsFound;
     }
 
     private boolean tryToSolve() {
-        log("Found", vectorDatas.size());
-        if (vectorDatas.size() < B_SMOOTH) {
+        if (bSmoothVectors.size() < B_SMOOTH) {
             return false;
         }
 
         BitMatrix bitMatrix = new BitMatrix();
-        ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(vectorDatas);
+        ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(bSmoothVectors);
 
         for (int i = 0; i < solutions.size(); i++) {
             ArrayList<VectorData> solution = solutions.get(i);

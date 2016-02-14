@@ -93,7 +93,7 @@ public class Logger {
     }
 
     private void printNumber(Object value) {
-        int minLength = 10;
+        int minLength = 2;
         String out = value.toString() + " ";
         out = updateLength(out, minLength);
         System.out.print(out);

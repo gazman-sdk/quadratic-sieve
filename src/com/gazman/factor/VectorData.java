@@ -10,6 +10,7 @@ public class VectorData {
 
     public final BitSet vector;
     public final long position;
+    public BigInteger actualValue;
 
     public VectorData(BitSet vector, long position) {
         this.vector = vector;

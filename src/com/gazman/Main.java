@@ -15,9 +15,12 @@ public class Main extends Logger {
     }
 
     private void init() {
-        int length = 70;
+        int length = 10;
         BigInteger a = BigInteger.probablePrime(length + 1, random);
         BigInteger b = BigInteger.probablePrime(length - 1, random);
+
+        a = new BigInteger("1637");
+        b = new BigInteger("503");
 
         BigInteger input = a.multiply(b);
         log(a, b);

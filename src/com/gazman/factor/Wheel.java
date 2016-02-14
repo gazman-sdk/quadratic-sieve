@@ -56,7 +56,6 @@ public class Wheel {
 
     public double nextLog() {
         powers = mutableInteger[count].nextPower();
-//        powers = 1;
         return log * powers;
     }
 
@@ -95,5 +94,9 @@ public class Wheel {
     @Override
     public String toString() {
         return prime + "";
+    }
+
+    public int getPrime() {
+        return prime;
     }
 }
