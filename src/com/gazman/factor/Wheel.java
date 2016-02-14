@@ -64,14 +64,14 @@ public class Wheel {
     }
 
     public long move() {
-        positions[count] += prime;
         long position = positions[count];
+        positions[count] += prime;
         count = (count + 1) % positions.length;
         return position;
     }
 
     public boolean testMove(long limit) {
-        return positions.length != 0 && positions[count] < limit - prime;
+        return positions.length != 0 && positions[count] < limit;
     }
 
     public void savePosition() {

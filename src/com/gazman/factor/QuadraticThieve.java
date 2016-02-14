@@ -12,7 +12,7 @@ import java.util.BitSet;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 10;
+    private static final int B_SMOOTH = 100;
     private static final double MINIMUM_LOG = 0.0000001;
     private double minimumPrimeLog;
     private int sieveVectorBound;
@@ -65,7 +65,6 @@ public class QuadraticThieve extends Logger {
                         throw new IllegalStateException("prime is not a prime " + bigPrimeVectore.actualValue + " " + bigPrimeVectore.position);
                     }
                 }
-                return;
             }
         }
     }

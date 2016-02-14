@@ -20,7 +20,7 @@ public class MutableInteger implements Cloneable{
 
     public MutableInteger(int base, BigInteger root, BigInteger N) {
         this.base = base;
-        this.digits = toLocalBase(root.pow(2).subtract(N));
+        this.digits = toLocalBase(root.pow(2).mod(N));
         BigInteger bigBase = BigInteger.valueOf(base);
         delta = toLocalBase(root.multiply(TOW).multiply(bigBase).add(bigBase.pow(2)));
         deltaDelta = toLocalBase(bigBase.pow(2).multiply(BigInteger.valueOf(2)));
@@ -57,12 +57,12 @@ public class MutableInteger implements Cloneable{
     }
 
     public int nextPower() {
-        add(digits, delta, moreDigits);
-        add(delta, deltaDelta, moreDelta);
         int i = 0;
         //noinspection StatementWithEmptyBody
         for (; i < digits.length && digits[i] == 0; i++)
             ;
+        add(digits, delta, moreDigits);
+        add(delta, deltaDelta, moreDelta);
         return i;
     }
 
