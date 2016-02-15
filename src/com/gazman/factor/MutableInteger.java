@@ -14,7 +14,7 @@ public class MutableInteger implements Cloneable{
     private static final BigInteger TOW = BigInteger.valueOf(2);
     private int base;
 
-    private MutableInteger(int[] deltaDelta){
+    protected MutableInteger(int[] deltaDelta){
         this.deltaDelta = deltaDelta;
     }
 
