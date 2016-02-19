@@ -1,7 +1,7 @@
 # quadratic-sieve
 Quadratic sieve implementation in Java
 
-<B>As of version 2.0 it can factor 60 digits number in 120 sec and solve matrixed with the size of 100,000x100,000 in 15 min.</B>
+<B>As of version 2.1 it can factor 40 digits number in 30 sec and solve matrixed with the size of 100,000x100,000 in 15 min.</B>
 
 This is java implemintation of the [Quadratic Sieve](https://en.wikipedia.org/wiki/Quadratic_sieve) algorithm.
 
@@ -67,7 +67,9 @@ The next tasks are:
  - Write a better description for the algorithm, as at this point I probably the only one who can understand it’s description…
  - Add Big primes optimization
 
-
+V2.1
+----------
+Added big primes optimization. It turns out that the wheels did a lot of work while predicting the exact power that the prime can be divided by, so I removed this future and it become faster. 
 
 
 
