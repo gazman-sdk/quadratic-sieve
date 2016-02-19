@@ -2,7 +2,6 @@ package com.gazman.factor;
 
 import com.gazman.factor.matrix.BitMatrix;
 import com.gazman.factor.matrix.VectorsShrinker;
-import com.gazman.factor.wheels.PowerWheel;
 import com.gazman.factor.wheels.Wheel;
 import com.gazman.math.MathUtils;
 import com.gazman.math.SqrRoot;
@@ -15,7 +14,7 @@ import java.util.BitSet;
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 2000;
+    private static final int B_SMOOTH = 5000;
     private static final double MINIMUM_LOG = 0.0000001;
     private double minimumBigPrimeLog;
     private int sieveVectorBound;
@@ -49,12 +48,17 @@ public class QuadraticThieve extends Logger {
         log("Start searching");
         long position = 0;
         long step = sieveVectorBound;
+        long lastUpdate = System.currentTimeMillis();
 
         while (true) {
             baseLog = calculateBaseLog(position);
             position += step;
             boolean sieve = sieve(position);
-            log("Processed", position, "B-Smooth found", bSmoothFound, "Big primes found", bigPrimesList.getPrimesFound());
+            long currentTimeMillis = System.currentTimeMillis();
+            if (currentTimeMillis - lastUpdate > 1000) {
+                log("Processed", position, "B-Smooth found", bSmoothFound, "Big primes found", bigPrimesList.getPrimesFound());
+                lastUpdate = currentTimeMillis;
+            }
             if (sieve && tryToSolve()) {
                 break;
             }
@@ -68,7 +72,7 @@ public class QuadraticThieve extends Logger {
 
     private void initSieveWheels() {
         for (int i = 0; i < wheels.length; i++) {
-            wheels[i] = new PowerWheel();
+            wheels[i] = new Wheel();
             wheels[i].init(primeBase[i], N, root);
         }
     }
@@ -129,7 +133,8 @@ public class QuadraticThieve extends Logger {
                     }
                     vectorsFound = true;
                 }
-                if (wheel.getPowers() % 2 != 0) {
+                int powers = wheel.getPowers();
+                if (powers % 2 != 0) {
                     vectors[index].vector.set(i);
                 }
             }
