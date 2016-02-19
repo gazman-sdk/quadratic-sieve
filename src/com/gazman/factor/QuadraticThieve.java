@@ -1,6 +1,8 @@
 package com.gazman.factor;
 
 import com.gazman.factor.matrix.BitMatrix;
+import com.gazman.factor.matrix.VectorsShrinker;
+import com.gazman.factor.wheels.PowerWheel;
 import com.gazman.factor.wheels.Wheel;
 import com.gazman.math.MathUtils;
 import com.gazman.math.SqrRoot;
@@ -8,13 +10,12 @@ import com.gazman.math.SqrRoot;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.LinkedList;
 
 /**
  * Created by Ilya Gazman on 1/27/2016.
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 10000;
+    private static final int B_SMOOTH = 2000;
     private static final double MINIMUM_LOG = 0.0000001;
     private double minimumBigPrimeLog;
     private int sieveVectorBound;
@@ -26,7 +27,7 @@ public class QuadraticThieve extends Logger {
     private double baseLog;
     private int bSmoothFound;
     private BigPrimesList bigPrimesList = new BigPrimesList();
-    private int bigPrimesIndex;
+    private VectorsShrinker vectorsShrinker = new VectorsShrinker();
 
     public void factor(BigInteger input) {
         log("Factoring started");
@@ -35,7 +36,7 @@ public class QuadraticThieve extends Logger {
 
         log("Building Prime Base");
         buildPrimeBase();
-        bigPrimesIndex = primeBase.length;
+        vectorsShrinker.init(root, primeBase.length, N);
         BigInteger highestPrime = primeBase[primeBase.length - 1];
         sieveVectorBound = highestPrime.intValue();
         minimumBigPrimeLog = Math.log(highestPrime.pow(2).doubleValue());
@@ -48,9 +49,6 @@ public class QuadraticThieve extends Logger {
         log("Start searching");
         long position = 0;
         long step = sieveVectorBound;
-
-
-//        minimumBigPrimeLog = MINIMUM_LOG;
 
         while (true) {
             baseLog = calculateBaseLog(position);
@@ -70,7 +68,7 @@ public class QuadraticThieve extends Logger {
 
     private void initSieveWheels() {
         for (int i = 0; i < wheels.length; i++) {
-            wheels[i] = new Wheel();
+            wheels[i] = new PowerWheel();
             wheels[i].init(primeBase[i], N, root);
         }
     }
@@ -109,8 +107,7 @@ public class QuadraticThieve extends Logger {
                     if (baseLog - logs[index] > minimumBigPrimeLog) {
                         continue;
                     }
-                    double trueLog = calculateBaseLog(position);
-                    trueLogs[index] = trueLog;
+                    trueLogs[index] = calculateBaseLog(position);
                 }
 
                 double reminderLog = trueLogs[index] - logs[index];
@@ -121,12 +118,13 @@ public class QuadraticThieve extends Logger {
                 boolean bigPrime = reminderLog > MINIMUM_LOG;
 
                 if (vectors[index] == null) {
-                    vectors[index] = new VectorData(new BitSet(i), index + destination - sieveVectorBound);
+                    VectorData vectorData = new VectorData(new BitSet(i), index + destination - sieveVectorBound);
+                    vectors[index] = vectorData;
                     if (bigPrime) {
-                        VectorData vector = vectors[index];
-                        bigPrimesList.add(reminderLog, vector);
+                        long prime = Math.round(Math.pow(Math.E, reminderLog));
+                        bigPrimesList.add(prime, vectorData);
                     } else {
-                        bSmoothVectors.add(vectors[index]);
+                        bSmoothVectors.add(vectorData);
                         bSmoothFound++;
                     }
                     vectorsFound = true;
@@ -147,37 +145,11 @@ public class QuadraticThieve extends Logger {
 
         log("Building matrix");
 
-        @SuppressWarnings("unchecked")
-        ArrayList<VectorData> bSmoothVectors = (ArrayList<VectorData>) this.bSmoothVectors.clone();
-        LinkedList<LinkedList<VectorData>> bigPrimes = bigPrimesList.getBigPrimes();
-        for (LinkedList<VectorData> bigPrimeList : bigPrimes) {
-            boolean updateIndex = false;
-            boolean firstVector = true;
-            int bigPrimeIndex = -1;
-            for (VectorData vectorData : bigPrimeList) {
-                if(firstVector && vectorData.bigPrimeIndex == -1){
-                    firstVector = false;
-                    updateIndex = true;
-                }
-                if(vectorData.bigPrimeIndex == -1){
-                    if(bigPrimeIndex == -1) {
-                        bigPrimeIndex = this.bigPrimesIndex;
-                    }
-                    vectorData.bigPrimeIndex = bigPrimeIndex;
-                    vectorData.vector.set(bigPrimeIndex);
-                }
-                else{
-                    bigPrimeIndex = vectorData.bigPrimeIndex;
-                }
-                bSmoothVectors.add(vectorData);
-            }
-            if(updateIndex){
-                this.bigPrimesIndex++;
-            }
-        }
+        ArrayList<VectorData> vectorDatas = vectorsShrinker.shrink(bSmoothVectors, bigPrimesList);
+
 
         BitMatrix bitMatrix = new BitMatrix();
-        ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(bSmoothVectors);
+        ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(vectorDatas);
 
         for (int i = 0; i < solutions.size(); i++) {
             ArrayList<VectorData> solution = solutions.get(i);
@@ -188,7 +160,7 @@ public class QuadraticThieve extends Logger {
         }
         log("no luck");
 
-        return true;
+        return false;
     }
 
     private boolean testSolution(ArrayList<VectorData> solutionVector) {
@@ -196,9 +168,15 @@ public class QuadraticThieve extends Logger {
         BigInteger x = one;
 
         for (VectorData vectorData : solutionVector) {
-            BigInteger savedX = root.add(BigInteger.valueOf(vectorData.position));
-            BigInteger savedY = savedX.pow(2).subtract(N);
-            x = x.multiply(savedX);
+            BigInteger savedX, savedY;
+            if (vectorData.x != null) {
+                savedX = vectorData.x;
+                savedY = vectorData.y;
+            } else {
+                savedX = root.add(BigInteger.valueOf(vectorData.position));
+                savedY = savedX.pow(2).subtract(N);
+            }
+            x = x.multiply(savedX).mod(N);
             y = y.multiply(savedY);
         }
 

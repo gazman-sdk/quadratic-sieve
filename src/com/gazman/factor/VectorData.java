@@ -12,6 +12,9 @@ public class VectorData {
     public final long position;
     public int bigPrimeIndex = -1;
 
+    public BigInteger x;
+    public BigInteger y;
+
     public VectorData(BitSet vector, long position) {
         this.vector = vector;
         this.position = position;

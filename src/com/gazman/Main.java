@@ -15,12 +15,12 @@ public class Main extends Logger {
     }
 
     private void init() {
-        int length = 70;
+        int length = 50;
         BigInteger a = BigInteger.probablePrime(length + 1, random);
         BigInteger b = BigInteger.probablePrime(length - 1, random);
 
-//        a = new BigInteger("1637");
-//        b = new BigInteger("503");
+//        a = new BigInteger("1209557");
+//        b = new BigInteger("280837");
 
         BigInteger input = a.multiply(b);
 //        input = RSA220;

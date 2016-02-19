@@ -1,5 +1,6 @@
 package com.gazman.factor;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 
@@ -13,9 +14,7 @@ public class BigPrimesList {
     private HashMap<Long, LinkedList<VectorData>> primesHash = new HashMap<>();
     private int primesFound;
 
-    public void add(Double primeLog, VectorData bigPrime){
-        long prime = Math.round(Math.pow(Math.E, primeLog));
-
+    public void add(long prime, VectorData bigPrime){
         LinkedList<VectorData> vectorDatas = primesHash.get(prime);
         if(vectorDatas == null){
             vectorDatas = new LinkedList<>();
@@ -32,8 +31,8 @@ public class BigPrimesList {
         return primesFound;
     }
 
-    public LinkedList<LinkedList<VectorData>> getBigPrimes(){
-        LinkedList<LinkedList<VectorData>> primeList = new LinkedList<>();
+    public ArrayList<LinkedList<VectorData>> getBigPrimes(){
+        ArrayList<LinkedList<VectorData>> primeList = new ArrayList<>();
         for (LinkedList<VectorData> prime : primes) {
             if(prime.size() > 1){
                 primeList.add(prime);
