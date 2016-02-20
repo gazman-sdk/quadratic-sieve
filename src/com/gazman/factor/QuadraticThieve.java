@@ -104,9 +104,7 @@ public class QuadraticThieve extends Logger {
                 wheel.nextLog();
                 long position = wheel.move();
                 int index = (int) (position % sieveVectorBound);
-                if (logs[index] == null) {
-                    continue;
-                }
+
                 if (trueLogs[index] == null) {
                     if (baseLog - logs[index] > minimumBigPrimeLog) {
                         continue;
