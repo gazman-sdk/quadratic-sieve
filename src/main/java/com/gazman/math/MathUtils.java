@@ -16,10 +16,6 @@ public class MathUtils {
         return x.modPow(exponent, p).equals(BigInteger.ONE);
     }
 
-    public static double log(double x, double base) {
-        return Math.log(x) / Math.log(base);
-    }
-
     /**
      * Tonelli–Shanks algorithm implemented by Stefan Buettcher
      *

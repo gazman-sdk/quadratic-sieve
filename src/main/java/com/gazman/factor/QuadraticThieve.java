@@ -7,7 +7,8 @@ import com.gazman.math.MathUtils;
 import com.gazman.math.SqrRoot;
 
 import java.math.BigInteger;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -23,14 +24,14 @@ public class QuadraticThieve extends Logger {
     private final int sieveVectorBound;
     private final BigInteger primeBase[] = new BigInteger[B_SMOOTH];
     private final int step;
-    private ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
+    private final ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
     private final BigInteger N;
     private final BigInteger root;
     private int bSmoothFound;
-    private BigPrimesList bigPrimesList = new BigPrimesList();
-    private VectorsShrinker vectorsShrinker = new VectorsShrinker();
+    private final BigPrimesList bigPrimesList = new BigPrimesList();
+    private final VectorsShrinker vectorsShrinker = new VectorsShrinker();
     private final double double2Root;
-//    private final int threadCount = Runtime.getRuntime().availableProcessors(); not working on mac
+    //    private final int threadCount = Runtime.getRuntime().availableProcessors(); not working on mac
     private final int threadCount = 2;
     private final AtomicInteger speedCounter = new AtomicInteger(0);
     private final AtomicInteger speed = new AtomicInteger(0);
@@ -65,7 +66,7 @@ public class QuadraticThieve extends Logger {
 
     private void execute(int threadId) {
         long basePosition = 0;
-        if(threadId == 0){
+        if (threadId == 0) {
             startingTime = System.currentTimeMillis();
         }
         while (true) {
@@ -78,7 +79,7 @@ public class QuadraticThieve extends Logger {
                 position += step;
                 boolean sieve = sieve(position, baseLog, localWheels);
                 speed.incrementAndGet();
-                if(speedCounter.incrementAndGet() == LOGS_TIME_BY_LOOPS){
+                if (speedCounter.incrementAndGet() == LOGS_TIME_BY_LOOPS) {
                     speedCounter.set(0);
                     logProcesses();
                 }
@@ -122,7 +123,7 @@ public class QuadraticThieve extends Logger {
         int speed = this.speed.intValue();
         long currentTimeMillis = System.currentTimeMillis();
         long secPass = (currentTimeMillis - startingTime) / 1000;
-        if(secPass == 0){
+        if (secPass == 0) {
             return;
         }
         log("speed", speed / secPass * step / 1000, "kValues a second, B-Smooth found", bSmoothFound, "Big primes found", bigPrimesList.getPrimesFound());
@@ -154,7 +155,7 @@ public class QuadraticThieve extends Logger {
             wheel.prepareToMove();
             while (wheel.testMove()) {
                 int index = wheel.move();
-                if(index > logs.length){
+                if (index > logs.length) {
                     log(index - sieveVectorBound, logs.length - sieveVectorBound, "error");
                     System.exit(3);
                 }

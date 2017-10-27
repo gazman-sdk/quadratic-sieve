@@ -6,8 +6,9 @@ import java.math.BigInteger;
  * Source: http://stackoverflow.com/questions/4407839/how-can-i-find-the-square-root-of-a-java-biginteger
  */
 
+@SuppressWarnings("SpellCheckingInspection")
 public class SqrRoot {
-    private static BigInteger two = BigInteger.valueOf(2L);
+    private static final BigInteger TWO = BigInteger.valueOf(2L);
 
     public static BigInteger bigIntSqRootFloor(BigInteger value)
             throws IllegalArgumentException {
@@ -19,10 +20,10 @@ public class SqrRoot {
             return BigInteger.valueOf((long) sqrt);
         }
         // starting with y = value / 2 avoids magnitude issues with value squared
-        BigInteger y = two.pow(value.bitLength() / 2);
+        BigInteger y = TWO.pow(value.bitLength() / 2);
         BigInteger result = value.divide(y);
         while (!y.subtract(result).abs().equals(BigInteger.ONE) && !y.subtract(result).equals(BigInteger.ZERO)) {
-            y = result.add(y).divide(two);
+            y = result.add(y).divide(TWO);
             result = value.divide(y);
         }
         return y;

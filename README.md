@@ -12,7 +12,7 @@ Upgraded to version 3:
  - Added support for multithreaded environment, each thread works on it's own region of numbers, it adds about 70% gain in performance for each core you got
  - Moved to Java Gradle with Java 8
  
- After the improvements the algorithm can perform 160 bits in ~50 sec 
+ After the improvements the algorithm can handle 160 bits(49 digits) in ~40 sec 
  
 # Implementation 
 

@@ -9,8 +9,8 @@ import java.util.LinkedList;
  */
 public class BigPrimesList {
 
-    private LinkedList<LinkedList<VectorData>> primes = new LinkedList<>();
-    private HashMap<Long, LinkedList<VectorData>> primesHash = new HashMap<>();
+    private final LinkedList<LinkedList<VectorData>> primes = new LinkedList<>();
+    private final HashMap<Long, LinkedList<VectorData>> primesHash = new HashMap<>();
     private int primesFound;
 
     void add(long prime, VectorData bigPrime) {

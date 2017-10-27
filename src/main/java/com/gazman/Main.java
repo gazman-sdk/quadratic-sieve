@@ -8,14 +8,14 @@ import java.util.Random;
 
 public class Main extends Logger {
 
-    private static Random random = new Random();
+    private static final Random random = new Random();
 
     public static void main(String[] args) {
         new Main().init();
     }
 
     private void init() {
-        int length = 70;
+        int length = 80;
         BigInteger a = BigInteger.probablePrime(length + 1, random);
         BigInteger b = BigInteger.probablePrime(length - 1, random);
 
