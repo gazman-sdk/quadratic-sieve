@@ -1,6 +1,5 @@
 package com.gazman.math;
 
-import java.math.BigDecimal;
 import java.math.BigInteger;
 
 /**
@@ -8,17 +7,7 @@ import java.math.BigInteger;
  */
 
 public class SqrRoot {
-    private static final int PRECISION = 20;
-    private static BigInteger multiplier = BigInteger.valueOf(10).pow(PRECISION * 2);
-    private static BigDecimal root = BigDecimal.valueOf(10).pow(PRECISION);
     private static BigInteger two = BigInteger.valueOf(2L);
-
-    public static BigDecimal bigDecimalSqRootFloor(BigInteger value)
-            throws IllegalArgumentException {
-        BigInteger result = bigIntSqRootFloor(value.multiply(multiplier));
-        //noinspection BigDecimalMethodWithoutRoundingCalled
-        return new BigDecimal(result).divide(root);
-    }
 
     public static BigInteger bigIntSqRootFloor(BigInteger value)
             throws IllegalArgumentException {

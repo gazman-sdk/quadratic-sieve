@@ -24,6 +24,6 @@ public class Main extends Logger {
         log(input, input.toString().length());
         log("---------");
         log();
-        new QuadraticThieve().factor(input);
+        new QuadraticThieve(input).start();
     }
 }

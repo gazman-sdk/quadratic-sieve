@@ -2,6 +2,17 @@
 
 This is Quadratic sieve implementation in Java, you can find a lot of info about the algorithm at [wiki](https://en.wikipedia.org/wiki/Quadratic_sieve), so I just assume
 you are familiar with the basics of the algorithm and jump right in to the implementation.
+
+# news
+Upgraded to version 3:
+
+ - Removed the mod from the sieve loop by replacing it with if bigger then do -, it improved performance by 20%
+ - Removed the mode from the wheels, this one was more tricky as I had to add a new state for that, the gain was 50% performance
+ - Changed Double to double, it improved performance by 500%, that one was funny
+ - Added support for multithreaded environment, each thread works on it's own region of numbers, it adds about 70% gain in performance for each core you got
+ - Moved to Java Gradle with Java 8
+ 
+ After the improvements the algorithm can perform 160 bits in ~50 sec 
  
 # Implementation 
 

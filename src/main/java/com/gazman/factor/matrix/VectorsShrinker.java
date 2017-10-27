@@ -15,7 +15,7 @@ public class VectorsShrinker {
 
     private BigInteger N;
     private BigInteger root;
-    public int bigPrimesIndex;
+    private int bigPrimesIndex;
 
     public void init(BigInteger root, int biggestPrimeIndex, BigInteger N) {
         this.root = root;
@@ -65,39 +65,6 @@ public class VectorsShrinker {
                 this.bigPrimesIndex++;
             }
         }
-
-//        Collections.sort(bSmoothVectors, new Comparator<VectorData>() {
-//            @Override
-//            public int compare(VectorData vectorData1, VectorData vectorData2) {
-//                return Long.compare(vectorData1.biggestPrime, vectorData2.biggestPrime);
-//            }
-//        });
-//
-//        int linkSize = 0;
-//        int linkId = -1;
-//
-//        for (int i = bSmoothVectors.size() - 2; i > 0; i--) {
-//            VectorData vectorDataPrevious = bSmoothVectors.get(i + 1);
-//            VectorData vectorDataCurrent = bSmoothVectors.get(i);
-//            VectorData vectorDataNext = bSmoothVectors.get(i - 1);
-//
-//            if(linkId == vectorDataCurrent.bigPrimeIndex){
-//                linkSize++;
-//            }
-//            else{
-//                linkSize = 0;
-//            }
-//            linkId = vectorDataCurrent.bigPrimeIndex;
-//            if(vectorDataCurrent.bigPrimeIndex != vectorDataNext.bigPrimeIndex){
-//                switch (linkSize){
-//                    case 1:
-//                        bSmoothVectors.remove(i);
-//                        merge(vectorDataPrevious, vectorDataCurrent);
-//                        vectorDataPrevious = null;
-//                        break;
-//                }
-//            }
-//        }
 
         return bSmoothVectors;
     }

@@ -15,7 +15,7 @@ public class VectorData {
     public BigInteger x;
     public BigInteger y;
 
-    public VectorData(BitSet vector, long position) {
+    VectorData(BitSet vector, long position) {
         this.vector = vector;
         this.position = position;
     }
@@ -23,5 +23,15 @@ public class VectorData {
     @Override
     public String toString() {
         return vector.toString();
+    }
+
+    @Override
+    public int hashCode() {
+        return vector.toString().hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof VectorData && vector.toString().equals(((VectorData) obj).vector.toString());
     }
 }
