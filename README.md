@@ -1,3 +1,7 @@
+# Deprecated!
+I reimplemented it from scratch with tons of new optimizations. The new release is faster by several order of magnitudes then this version.
+https://github.com/gazman-sdk/quadratic-sieve-Java
+
 # Java Quadratic Sieve
 
 This is Quadratic sieve implementation in Java, you can find a lot of info about the algorithm at [wiki](https://en.wikipedia.org/wiki/Quadratic_sieve), so I just assume
