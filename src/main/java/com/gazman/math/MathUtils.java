@@ -29,7 +29,7 @@ public class MathUtils {
         BigInteger bigN = BigInteger.valueOf(n);
         BigInteger bigPrime = BigInteger.valueOf(prime);
 
-        long result[] = new long[2];
+        long[] result = new long[2];
         result[0] = -1;
         result[1] = -1;
 
@@ -90,7 +90,7 @@ public class MathUtils {
     }
 
     private static long v_(long j, long h, long n, long p) {
-        long b[] = new long[64];
+        long[] b = new long[64];
         long m = n;
         long v = h;
         long w = (h * h - 2 * m) % p;

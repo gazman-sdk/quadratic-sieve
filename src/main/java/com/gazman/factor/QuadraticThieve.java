@@ -16,18 +16,16 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class QuadraticThieve extends Logger {
     private static final int B_SMOOTH = 5000;
-    private static final double MINIMUM_LOG = 0.0000001;
     public static final int MAX_LOOPS = B_SMOOTH * 2;
     public static final int LOGS_TIME_BY_LOOPS = B_SMOOTH / 20;
-
+    private static final double MINIMUM_LOG = 0.0000001;
     private final double minimumBigPrimeLog;
     private final int sieveVectorBound;
-    private final BigInteger primeBase[] = new BigInteger[B_SMOOTH];
+    private final BigInteger[] primeBase = new BigInteger[B_SMOOTH];
     private final int step;
     private final ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
     private final BigInteger N;
     private final BigInteger root;
-    private int bSmoothFound;
     private final BigPrimesList bigPrimesList = new BigPrimesList();
     private final VectorsShrinker vectorsShrinker = new VectorsShrinker();
     private final double double2Root;
@@ -35,6 +33,7 @@ public class QuadraticThieve extends Logger {
     private final int threadCount = 2;
     private final AtomicInteger speedCounter = new AtomicInteger(0);
     private final AtomicInteger speed = new AtomicInteger(0);
+    private int bSmoothFound;
     private long startingTime;
 
     public QuadraticThieve(BigInteger input) {
@@ -70,7 +69,7 @@ public class QuadraticThieve extends Logger {
             startingTime = System.currentTimeMillis();
         }
         while (true) {
-            long position = basePosition + threadId * MAX_LOOPS * step;
+            long position = basePosition + (long) threadId * MAX_LOOPS * step;
             log(threadId, "Building wheels");
             Wheel[] localWheels = initSieveWheels(position);
             log(threadId, "Started");
@@ -115,7 +114,7 @@ public class QuadraticThieve extends Logger {
                     }
                 }
             }
-            basePosition += step * MAX_LOOPS * threadCount;
+            basePosition += (long) step * MAX_LOOPS * threadCount;
         }
     }
 

@@ -12,8 +12,8 @@ import java.util.HashMap;
  */
 public class BitMatrix extends Logger {
 
-    private BitSet rows[];
-    private BitSet solutionRows[];
+    private BitSet[] rows;
+    private BitSet[] solutionRows;
     private ArrayList<VectorData> vectorDatas;
 
     public ArrayList<ArrayList<VectorData>> solve(ArrayList<VectorData> vectorDatas) {

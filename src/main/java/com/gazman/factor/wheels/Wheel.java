@@ -8,14 +8,14 @@ import java.math.BigInteger;
  * Created by Ilya Gazman on 2/3/2016.
  */
 public class Wheel implements Cloneable {
-    private final int[] positions;
-    private int count = 0;
-    private final int prime;
     public final double log;
+    private final int[] positions;
+    private final int prime;
     private final int[] savedPosition;
-    private int savedCount;
     private final int sieveVectorBound;
     private final int[] loops;
+    private int count = 0;
+    private int savedCount;
 
     public Wheel(BigInteger prime, BigInteger N, BigInteger root, int sieveVectorBound) {
         this.sieveVectorBound = sieveVectorBound;
