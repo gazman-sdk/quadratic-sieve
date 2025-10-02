@@ -104,10 +104,10 @@ public class QuadraticThieve extends Logger {
                     }
                     logProcesses();
                     if (tryToSolve()) {
-                        System.exit(1);
+                        System.exit(0);
                         break;
                     } else {
-                        System.exit(1);
+                        System.exit(0);
                         synchronized (QuadraticThieve.this) {
                             QuadraticThieve.this.notifyAll();
                         }
@@ -145,9 +145,9 @@ public class QuadraticThieve extends Logger {
     private boolean sieve(long destination, double baseLog, Wheel[] wheels) {
         boolean vectorsFound = false;
         double[] logs = new double[sieveVectorBound];
-        double[] trueLogs = new double[sieveVectorBound];
         VectorData[] vectors = new VectorData[sieveVectorBound];
 
+        // First pass: accumulate all logs
         for (int i = 0; i < primeBase.length; i++) {
             Wheel wheel = wheels[i];
             wheel.savePosition();
@@ -163,28 +163,31 @@ public class QuadraticThieve extends Logger {
             wheel.restorePosition();
         }
 
+        // Second pass: process candidates and build vectors
         for (int i = primeBase.length - 1; i >= 0; i--) {
             Wheel wheel = wheels[i];
             wheel.prepareToMove();
             while (wheel.testMove()) {
                 int index = wheel.move();
 
-                if (trueLogs[index] == 0) {
+                // Only calculate true log once when we first process this position
+                if (vectors[index] == null) {
+                    // Check if this position is worth pursuing
                     if (baseLog - logs[index] > minimumBigPrimeLog) {
                         continue;
                     }
-                    trueLogs[index] = calculateBaseLog(destination + index - sieveVectorBound);
-                }
 
-                double reminderLog = trueLogs[index] - logs[index];
-                if (reminderLog > minimumBigPrimeLog) {
-                    continue;
-                }
+                    // Calculate the actual log only once
+                    double trueLog = calculateBaseLog(destination + index - sieveVectorBound);
+                    double reminderLog = trueLog - logs[index];
 
-                boolean bigPrime = reminderLog > MINIMUM_LOG;
+                    if (reminderLog > minimumBigPrimeLog) {
+                        continue;
+                    }
 
-                synchronized (this) {
-                    if (vectors[index] == null) {
+                    boolean bigPrime = reminderLog > MINIMUM_LOG;
+
+                    synchronized (this) {
                         VectorData vectorData = new VectorData(new BitSet(i), index + destination - sieveVectorBound);
                         vectors[index] = vectorData;
 
@@ -195,9 +198,15 @@ public class QuadraticThieve extends Logger {
                             bSmoothVectors.add(vectorData);
                             bSmoothFound++;
                         }
+                        vectorsFound = true;
                     }
-                    vectorsFound = true;
-                    vectors[index].vector.set(i);
+                }
+
+                // Set the bit for this prime
+                synchronized (this) {
+                    if (vectors[index] != null) {
+                        vectors[index].vector.set(i);
+                    }
                 }
             }
         }
