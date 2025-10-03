@@ -1,12 +1,43 @@
-group 'gazman'
-version '3.0'
+plugins {
+    id 'java'
+    id 'application'
+}
 
-apply plugin: 'java'
+java {
+    // Require JDK 25 so Loom (virtual threads) APIs are available
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    // (Optional) also set bytecode level explicitly
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+application {
+    // Your existing entry point
+    mainClass = 'com.gazman.Main'
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    testImplementation group: 'junit', name: 'junit', version: '4.13.1'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.test {
+    useJUnit() // JUnit 4
+    // If you later switch to JUnit 5: useJUnitPlatform()
+}
+
+// Helpful for seeing which JDK Gradle picked for each task
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+tasks.withType(Test).configureEach {
+    jvmArgs += ['-Xms128m', '-Xmx1g']
+}
+tasks.withType(JavaExec).configureEach {
+    jvmArgs += ['-Xms128m', '-Xmx1g']
 }

@@ -8,33 +8,55 @@ import com.gazman.math.SqrRoot;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Created by Ilya Gazman on 1/27/2016.
+ * Quadratic Sieve with:
+ *  - Single-pass sieve (scaled logs)
+ *  - Per-index bucket lists of hitting primes (massive TD reduction)
+ *  - Single-large-prime policy aligned to original (<= B_max^2)
+ *  - Per-thread batching (no hot-path sync/alloc)
  */
 public class QuadraticThieve extends Logger {
-    private static final int B_SMOOTH = 5000;
-    public static final int MAX_LOOPS = B_SMOOTH * 2;
+    // --- Tuning knobs ---
+    private static final int B_SMOOTH = 5000;               // factor base size
+    public static final int MAX_LOOPS = B_SMOOTH * 2;       // blocks per thread before moving window
     public static final int LOGS_TIME_BY_LOOPS = B_SMOOTH / 20;
-    private static final double MINIMUM_LOG = 0.0000001;
-    private final double minimumBigPrimeLog;
-    private final int sieveVectorBound;
-    private final BigInteger[] primeBase = new BigInteger[B_SMOOTH];
-    private final int step;
-    private final ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
+
+    // Fixed-point logs for hot loop
+    private static final int LOG_SCALE = 256;
+    private static final int LOG_EPS = 6;                   // ~0.023 nats
+
+    // Growth factor for bucket storage
+    private static final int BUCKET_GROWTH = 2;
+
     private final BigInteger N;
     private final BigInteger root;
-    private final BigPrimesList bigPrimesList = new BigPrimesList();
-    private final VectorsShrinker vectorsShrinker = new VectorsShrinker();
     private final double double2Root;
-    //    private final int threadCount = Runtime.getRuntime().availableProcessors(); not working on mac
+
+    private final BigInteger[] primeBase = new BigInteger[B_SMOOTH];
+    private final int[] primeBaseInt = new int[B_SMOOTH];
+    private final int[] logPScaled = new int[B_SMOOTH];
+
+    private final int sieveVectorBound; // block size
+    private final int step;
+
+    // Large-prime cutoff = (B_max)^2 (like original)
+    private final BigInteger largePrimeBoundBI;
+    private final int BIG_PRIME_CUTOFF_SCALED;
+
+    // Threads
     private final int threadCount = 2;
+    private final VectorsShrinker vectorsShrinker = new VectorsShrinker();
+    private final BigPrimesList bigPrimesList = new BigPrimesList();
+
+    private final ArrayList<VectorData> bSmoothVectors = new ArrayList<>();
+
     private final AtomicInteger speedCounter = new AtomicInteger(0);
     private final AtomicInteger speed = new AtomicInteger(0);
-    private int bSmoothFound;
-    private long startingTime;
+    private volatile long startingTime;
 
     public QuadraticThieve(BigInteger input) {
         log("Factoring started");
@@ -45,53 +67,76 @@ public class QuadraticThieve extends Logger {
         log("Building Prime Base");
         buildPrimeBase();
         vectorsShrinker.init(root, primeBase.length, N);
+
         BigInteger highestPrime = primeBase[primeBase.length - 1];
         sieveVectorBound = highestPrime.intValue();
-        minimumBigPrimeLog = Math.log(highestPrime.pow(2).doubleValue());
         step = sieveVectorBound;
+
+        for (int i = 0; i < B_SMOOTH; i++) {
+            int p = primeBase[i].intValue();
+            primeBaseInt[i] = p;
+            logPScaled[i] = (int) Math.round(Math.log(p) * LOG_SCALE);
+        }
+
+        largePrimeBoundBI = highestPrime.multiply(highestPrime);
+        BIG_PRIME_CUTOFF_SCALED = (int) Math.round(Math.log(largePrimeBoundBI.doubleValue()) * LOG_SCALE);
+
         log("Biggest prime is", highestPrime);
         log();
-
         log("Working on", threadCount, "threads");
         log("Start searching");
     }
 
     public void start() {
         for (int i = 0; i < threadCount; i++) {
-            int threadId = i;
-            new Thread(() -> execute(threadId)).start();
+            final int threadId = i;
+            new Thread(() -> execute(threadId), "QS-" + threadId).start();
         }
     }
 
     private void execute(int threadId) {
         long basePosition = 0;
-        if (threadId == 0) {
-            startingTime = System.currentTimeMillis();
-        }
+        if (threadId == 0) startingTime = System.currentTimeMillis();
+
         while (true) {
             long position = basePosition + (long) threadId * MAX_LOOPS * step;
             log(threadId, "Building wheels");
             Wheel[] localWheels = initSieveWheels(position);
             log(threadId, "Started");
+
+            Work ws = new Work(sieveVectorBound, estimateBucketCapacity());
+
             for (int loops = 0; loops < MAX_LOOPS; loops++) {
-                double baseLog = calculateBaseLog(position);
                 position += step;
-                boolean sieve = sieve(position, baseLog, localWheels);
+
+                sieveOnePass(position, localWheels, ws);
+
+                // Merge batches
+                if (ws.localBSmoothCount > 0) {
+                    synchronized (bSmoothVectors) {
+                        bSmoothVectors.addAll(ws.localBSmooth);
+                    }
+                    ws.localBSmooth.clear();
+                    ws.localBSmoothCount = 0;
+                }
+                if (!ws.localBigPrimes.isEmpty()) {
+                    synchronized (bigPrimesList) {
+                        for (Pair p : ws.localBigPrimes) bigPrimesList.add(p.prime, p.data);
+                    }
+                    ws.localBigPrimes.clear();
+                }
+
+                // stats
                 speed.incrementAndGet();
                 if (speedCounter.incrementAndGet() == LOGS_TIME_BY_LOOPS) {
                     speedCounter.set(0);
                     logProcesses();
                 }
 
-                if (sieve && isReadyToBeSolved()) {
+                // solve?
+                if (isReadyToBeSolved()) {
                     log(threadId, "Getting ready to solve");
-                    if (threadId == 0) {
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    } else {
+                    if (threadId != 0) {
                         synchronized (QuadraticThieve.this) {
                             try {
                                 log(threadId, "Waiting for solution");
@@ -107,31 +152,27 @@ public class QuadraticThieve extends Logger {
                         System.exit(0);
                         break;
                     } else {
-                        System.exit(0);
                         synchronized (QuadraticThieve.this) {
                             QuadraticThieve.this.notifyAll();
                         }
+                        System.exit(0);
                     }
                 }
             }
+
             basePosition += (long) step * MAX_LOOPS * threadCount;
         }
     }
 
     private void logProcesses() {
-        int speed = this.speed.intValue();
-        long currentTimeMillis = System.currentTimeMillis();
-        long secPass = (currentTimeMillis - startingTime) / 1000;
-        if (secPass == 0) {
-            return;
-        }
-        log("speed", speed / secPass * step / 1000, "kValues a second, B-Smooth found", bSmoothFound, "Big primes found", bigPrimesList.getPrimesFound());
-    }
+        int loopsDone = this.speed.intValue();
+        long now = System.currentTimeMillis();
+        long sec = Math.max(1, (now - startingTime) / 1000);
+        long blocksPerSec = loopsDone / sec;
+        long valuesPerSec = blocksPerSec * (long) step;
 
-    private double calculateBaseLog(double position) {
-//        double target = root.add(BigInteger.valueOf(position)).pow(2).subtract(N).doubleValue();
-        return Math.log(position * (position + double2Root));
-
+        log("speed", valuesPerSec / 1000, "kValues a second, B-Smooth found",
+                bSmoothVectors.size(), "Big primes found", bigPrimesList.getPrimesFound());
     }
 
     private Wheel[] initSieveWheels(long position) {
@@ -142,82 +183,125 @@ public class QuadraticThieve extends Logger {
         return wheels;
     }
 
-    private boolean sieve(long destination, double baseLog, Wheel[] wheels) {
-        boolean vectorsFound = false;
-        double[] logs = new double[sieveVectorBound];
-        VectorData[] vectors = new VectorData[sieveVectorBound];
+    // Heuristic capacity: ~ block * (2 * sum_{p<=P} 1/p)
+    private int estimateBucketCapacity() {
+        // For B=5000 up to ~1e5, sum 1/p ~ 2.2–2.5; times 2 roots → ~4.5–5.
+        // With block ~1e5 → ~5e5 hits. Add margin.
+        return sieveVectorBound * 6;
+    }
 
-        // First pass: accumulate all logs
-        for (int i = 0; i < primeBase.length; i++) {
-            Wheel wheel = wheels[i];
-            wheel.savePosition();
-            wheel.prepareToMove();
-            while (wheel.testMove()) {
-                int index = wheel.move();
-                if (index > logs.length) {
-                    log(index - sieveVectorBound, logs.length - sieveVectorBound, "error");
-                    System.exit(3);
-                }
-                logs[index] += wheel.log;
-            }
-            wheel.restorePosition();
-        }
+    /**
+     * Single-pass sieve with buckets:
+     *  - accumulate log(p) in acc[idx]
+     *  - record prime hits into per-index linked lists
+     *  - candidate scan by exact expected log
+     *  - TD only against primes in that index's bucket
+     */
+    private void sieveOnePass(long destination, Wheel[] wheels, Work ws) {
+        Arrays.fill(ws.acc, 0);
+        Arrays.fill(ws.head, -1);
+        ws.ptr = 0;
 
-        // Second pass: process candidates and build vectors
-        for (int i = primeBase.length - 1; i >= 0; i--) {
-            Wheel wheel = wheels[i];
-            wheel.prepareToMove();
-            while (wheel.testMove()) {
-                int index = wheel.move();
-
-                // Only calculate true log once when we first process this position
-                if (vectors[index] == null) {
-                    // Check if this position is worth pursuing
-                    if (baseLog - logs[index] > minimumBigPrimeLog) {
-                        continue;
-                    }
-
-                    // Calculate the actual log only once
-                    double trueLog = calculateBaseLog(destination + index - sieveVectorBound);
-                    double reminderLog = trueLog - logs[index];
-
-                    if (reminderLog > minimumBigPrimeLog) {
-                        continue;
-                    }
-
-                    boolean bigPrime = reminderLog > MINIMUM_LOG;
-
-                    synchronized (this) {
-                        VectorData vectorData = new VectorData(new BitSet(i), index + destination - sieveVectorBound);
-                        vectors[index] = vectorData;
-
-                        if (bigPrime) {
-                            long prime = Math.round(Math.pow(Math.E, reminderLog));
-                            bigPrimesList.add(prime, vectorData);
-                        } else {
-                            bSmoothVectors.add(vectorData);
-                            bSmoothFound++;
-                        }
-                        vectorsFound = true;
-                    }
-                }
-
-                // Set the bit for this prime
-                synchronized (this) {
-                    if (vectors[index] != null) {
-                        vectors[index].vector.set(i);
-                    }
+        // accumulate logs and fill buckets
+        for (int i = 0; i < primeBaseInt.length; i++) {
+            Wheel w = wheels[i];
+            w.prepareToMove();
+            int inc = logPScaled[i];
+            while (w.testMove()) {
+                int idx = w.move();
+                if (idx >= 0 && idx < sieveVectorBound) {
+                    ws.acc[idx] += inc;
+                    // push (i) into bucket for idx
+                    if (ws.ptr == ws.who.length) ws.growBuckets();
+                    ws.who[ws.ptr] = i;
+                    ws.next[ws.ptr] = ws.head[idx];
+                    ws.head[idx] = ws.ptr;
+                    ws.ptr++;
                 }
             }
         }
 
-        return vectorsFound;
+        // scan candidates
+        for (int idx = 0; idx < sieveVectorBound; idx++) {
+            long tLong = destination + idx - sieveVectorBound;
+            double expectedLn = Math.log(Math.max(1.0, (double) tLong * (tLong + double2Root)));
+            int expectedScaled = (int) Math.round(expectedLn * LOG_SCALE);
+            int remainderScaled = expectedScaled - ws.acc[idx];
+
+            if (remainderScaled <= BIG_PRIME_CUTOFF_SCALED + LOG_EPS) {
+                trialDivideBucketed(tLong, ws.head[idx], ws, expectedScaled);
+            }
+        }
+    }
+
+    /**
+     * Divide Q(t) only by the primes that actually hit this index (bucket list).
+     * Handles prime powers by repeated division; builds parity vector.
+     * Accepts:
+     *  - B-smooth (rem == 1)
+     *  - single large prime (rem <= B_max^2 and prime)
+     */
+    private void trialDivideBucketed(long tLong, int headNode, Work ws, int expectedScaled) {
+        if (headNode == -1) return;
+
+        BigInteger t = BigInteger.valueOf(tLong);
+        BigInteger x = root.add(t);
+        BigInteger Q = x.multiply(x).subtract(N).abs();
+        if (Q.signum() == 0) return;
+
+        BitSet bits = new BitSet(B_SMOOTH);
+        BigInteger rem = Q;
+
+        // only the primes that hit this position
+        for (int node = headNode; node != -1; node = ws.next[node]) {
+            int i = ws.who[node];
+            int p = primeBaseInt[i];
+
+            if (p == 2) {
+                int parity = 0;
+                while (!rem.testBit(0)) {
+                    rem = rem.shiftRight(1);
+                    parity ^= 1;
+                }
+                if (parity == 1) bits.set(i);
+            } else {
+                int parity = 0;
+                BigInteger bp = BigInteger.valueOf(p);
+                // divide out p fully
+                while (rem.mod(bp).signum() == 0) {
+                    rem = rem.divide(bp);
+                    parity ^= 1;
+                }
+                if (parity == 1) bits.set(i);
+            }
+
+            if (rem.equals(BigInteger.ONE)) break;
+        }
+
+        // tiny early abort: if rem is already huge, bail quickly
+        if (!rem.equals(BigInteger.ONE) && rem.bitLength() - largePrimeBoundBI.bitLength() > 2) {
+            return;
+        }
+
+        VectorData vd = new VectorData(bits, tLong);
+
+        if (rem.equals(BigInteger.ONE)) {
+            ws.localBSmooth.add(vd);
+            ws.localBSmoothCount++;
+            return;
+        }
+
+        if (rem.compareTo(largePrimeBoundBI) <= 0 && rem.isProbablePrime(20)) {
+            ws.localBigPrimes.add(new Pair(rem.longValue(), vd));
+        }
     }
 
     private boolean tryToSolve() {
         log("Building matrix");
-
-        ArrayList<VectorData> vectorDatas = vectorsShrinker.shrink(bSmoothVectors, bigPrimesList);
+        ArrayList<VectorData> vectorDatas;
+        synchronized (bSmoothVectors) {
+            vectorDatas = vectorsShrinker.shrink(bSmoothVectors, bigPrimesList);
+        }
 
         BitMatrix bitMatrix = new BitMatrix();
         ArrayList<ArrayList<VectorData>> solutions = bitMatrix.solve(vectorDatas);
@@ -230,7 +314,6 @@ public class QuadraticThieve extends Logger {
             }
         }
         log("no luck");
-
         return false;
     }
 
@@ -260,22 +343,52 @@ public class QuadraticThieve extends Logger {
         if (!gcd.equals(one) && !gcd.equals(N)) {
             log("Solved");
             log(gcd);
-
             return true;
         }
-
         return false;
     }
 
     private void buildPrimeBase() {
         BigInteger prime = BigInteger.ONE;
-
-        for (int i = 0; i < B_SMOOTH; ) {
+        int i = 0;
+        while (i < B_SMOOTH) {
             prime = prime.nextProbablePrime();
             if (MathUtils.isRootInQuadraticResidues(N, prime)) {
                 primeBase[i] = prime;
                 i++;
             }
         }
+    }
+
+    // --- thread-local work buffers ---
+    private static final class Work {
+        final int[] acc;              // scaled log sums
+        final int[] head;             // per-index linked list head
+        int[] who;                    // prime index for node
+        int[] next;                   // next node pointer
+        int ptr = 0;                  // current fill pointer
+
+        final ArrayList<VectorData> localBSmooth = new ArrayList<>(256);
+        final ArrayList<Pair> localBigPrimes = new ArrayList<>(256);
+        int localBSmoothCount = 0;
+
+        Work(int n, int bucketCap) {
+            this.acc = new int[n];
+            this.head = new int[n];
+            this.who = new int[bucketCap];
+            this.next = new int[bucketCap];
+        }
+
+        void growBuckets() {
+            int newCap = who.length * BUCKET_GROWTH;
+            who = Arrays.copyOf(who, newCap);
+            next = Arrays.copyOf(next, newCap);
+        }
+    }
+
+    private static final class Pair {
+        final long prime;
+        final VectorData data;
+        Pair(long p, VectorData d) { this.prime = p; this.data = d; }
     }
 }
