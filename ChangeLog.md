@@ -1,4 +1,4 @@
-# Time cut from 10 sec to 7 sec
+# Time cut from 10.5 sec to 7.9 sec
 
 * **Single-pass sieve.**
   I merged your “add logs” and “build vectors” passes into one pass per block. We only scan primes once, then decide which indices are worth trial-dividing.
@@ -51,3 +51,54 @@ If you want that metric to reflect real throughput, add a “relations/sec” st
 * **Two-stage early abort:** after dividing the first few bucket primes, compare a conservative log of the remainder with the remaining budget; bail early if it can’t fit. This typically trims another 20–40% of TD time.
 * **Bigger block (segment) size:** making `sieveVectorBound` a larger fixed segment (e.g., 128k–512k) increases cache-friendly linear passes and reduces per-block overhead.
 * **Pre-sieving small prime powers (2, 3, 5):** subtract their logs in tight unrolled loops before the general sieve.
+
+
+# Time cut from 7.9 sec to 6.1 sec
+
+awesome—glad it moved the needle. here’s a tight summary of what we changed and why it helped:
+
+# What changed
+
+1. Two-Large-Prime (2LP) relations with instant merging
+
+* Added `BigPrimePairs` to collect partial relations keyed by an unordered pair `(p, q)`.
+* When a second relation with the same `(p, q)` arrives, we XOR their parity vectors and multiply their `(x,y)` to produce a **B-smooth** relation immediately.
+* Result: many near-smooths convert to full relations sooner → fewer candidates needed to hit the matrix target → less sieving time.
+
+2. Killed per-index `Math.log` in the hot loop (block-constant threshold)
+
+* Precompute a **single** log threshold per block: `LN_2ROOT_SCALED + log(t0)` instead of `log(Q(t))` for every index.
+* Kept the bucketed trial division, so occasional false positives are filtered cheaply.
+* Result: removes millions of transcendental calls per run → big pure CPU win; your speed jumped to ~200k values/s.
+
+3. Kept the fast, cache-friendly sieve structure
+
+* Still bucket by index, still only trial-divide by primes that actually hit that index (from the bucket list).
+* Threads batch their finds and merge in bulk (no extra contention).
+
+# Code touchpoints (Java)
+
+* New class: `BigPrimePairs` (thread-safe hashmap keyed by `"min#max"`), merges equal 2LP pairs into B-smooth relations.
+* `QuadraticThieve`:
+
+    * Added fields: `LN_2ROOT_SCALED` and `BigPrimePairs bigPrimePairs`.
+    * Constructor: initialize both.
+    * Replaced `sieveOnePass(...)`: uses **block-constant** expected log; no per-index `Math.log`.
+    * Replaced `trialDivideBucketed(...)`:
+
+        * unchanged bucketed TD for factor-base primes,
+        * single-LP path kept,
+        * **new 2LP path**: cheap 64-bit split for `rem ≤ B_max^2`, verify both factors prime, then try to merge via `bigPrimePairs`.
+    * Added `factorSemiprimeLE1e10(long n)` helper (trial divides up to 100k; safe because your large-prime cutoff is `B_max^2`).
+
+# Why it sped things up
+
+* 2LP merging increases the **yield per candidate**, so you reach ~B relations sooner.
+* Removing per-index logs reduces hot-loop cost substantially; CPU now spends cycles on real sieving/TD, not transcendental math.
+* Matrix phase unchanged (already ~1s), but it kicks in earlier thanks to more/faster relations.
+
+# Sanity/guardrails
+
+* Thread-safety: `BigPrimePairs.add(...)` is `synchronized`; per-thread batches still used for low contention elsewhere.
+* Correctness: we only create a B-smooth from 2LP when we see **the same (p, q)** twice; parity vectors XORed; `x,y` multiplied.
+* Bounds: the 64-bit splitter is only called when `rem ≤ B_max^2`; at least one factor ≤ 1e5, so it’s fast.

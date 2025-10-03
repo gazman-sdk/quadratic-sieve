@@ -15,7 +15,7 @@ public class Main extends Logger {
     }
 
     private void init() {
-        int length = 80;
+        int length = 90;
         BigInteger a = BigInteger.probablePrime(length + 1, random);
         BigInteger b = BigInteger.probablePrime(length - 1, random);
 
