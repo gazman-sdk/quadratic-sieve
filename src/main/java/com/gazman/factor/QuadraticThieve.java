@@ -56,12 +56,11 @@ public class QuadraticThieve extends Logger {
 
     private final AtomicInteger speedCounter = new AtomicInteger(0);
     private final AtomicInteger speed = new AtomicInteger(0);
-    private volatile long startingTime;
     // --- fast log threshold ---
     private final int LN_2ROOT_SCALED;          // round( ln(2*sqrt(N)) * LOG_SCALE )
-
     // 2-large-prime aggregator
     private final BigPrimePairs bigPrimePairs;
+    private volatile long startingTime;
 
 
     public QuadraticThieve(BigInteger input) {
@@ -94,6 +93,11 @@ public class QuadraticThieve extends Logger {
         log();
         log("Working on", threadCount, "threads");
         log("Start searching");
+    }
+
+    private static int fastLogScaled(long x) {
+        // one Math.log per block; here keep it inline for clarity
+        return (int) Math.round(Math.log((double) x) * LOG_SCALE);
     }
 
     public void start() {
@@ -245,12 +249,6 @@ public class QuadraticThieve extends Logger {
         }
     }
 
-
-    private static int fastLogScaled(long x) {
-        // one Math.log per block; here keep it inline for clarity
-        return (int) Math.round(Math.log((double) x) * LOG_SCALE);
-    }
-
     /**
      * Divide Q(t) only by the primes that actually hit this index (bucket list).
      * Handles prime powers by repeated division; builds parity vector.
@@ -331,8 +329,8 @@ public class QuadraticThieve extends Logger {
     private PairLong factorSemiprimeLE1e10(long n) {
         if ((n & 1L) == 0) return new PairLong(2L, n >>> 1);
         // quick checks by 3 and 5
-        if (n % 3L == 0)  return new PairLong(3L, n / 3L);
-        if (n % 5L == 0)  return new PairLong(5L, n / 5L);
+        if (n % 3L == 0) return new PairLong(3L, n / 3L);
+        if (n % 5L == 0) return new PairLong(5L, n / 5L);
 
         // odd trial division up to 100,000
         for (long d = 7; d * d <= n && d <= 100_000L; d += 2) {
@@ -412,12 +410,11 @@ public class QuadraticThieve extends Logger {
     private static final class Work {
         final int[] acc;              // scaled log sums
         final int[] head;             // per-index linked list head
+        final ArrayList<VectorData> localBSmooth = new ArrayList<>(256);
+        final ArrayList<Pair> localBigPrimes = new ArrayList<>(256);
         int[] who;                    // prime index for node
         int[] next;                   // next node pointer
         int ptr = 0;                  // current fill pointer
-
-        final ArrayList<VectorData> localBSmooth = new ArrayList<>(256);
-        final ArrayList<Pair> localBigPrimes = new ArrayList<>(256);
         int localBSmoothCount = 0;
 
         Work(int n, int bucketCap) {
@@ -434,9 +431,7 @@ public class QuadraticThieve extends Logger {
         }
     }
 
-    private static final class PairLong {
-        final long a, b;
-        PairLong(long a, long b) { this.a = a; this.b = b; }
+    private record PairLong(long a, long b) {
     }
 
     private record Pair(long prime, VectorData data) {

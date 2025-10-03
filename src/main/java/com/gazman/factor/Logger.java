@@ -59,9 +59,8 @@ public class Logger {
                     System.out.print(Array.get(param, i) + " ");
                 }
                 System.out.print("]");
-            } else if (param instanceof List) {
+            } else if (param instanceof List list) {
                 System.out.print("[");
-                List list = (List) param;
                 for (int i = 0; i < list.size(); i++) {
                     Object o = list.get(i);
                     System.out.print(o + (i < list.size() - 1 ? ", " : ""));
