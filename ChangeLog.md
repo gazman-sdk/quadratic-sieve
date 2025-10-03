@@ -102,3 +102,55 @@ awesome—glad it moved the needle. here’s a tight summary of what we changed 
 * Thread-safety: `BigPrimePairs.add(...)` is `synchronized`; per-thread batches still used for low contention elsewhere.
 * Correctness: we only create a B-smooth from 2LP when we see **the same (p, q)** twice; parity vectors XORed; `x,y` multiplied.
 * Bounds: the 64-bit splitter is only called when `rem ≤ B_max^2`; at least one factor ≤ 1e5, so it’s fast.
+
+# Improved fro 35 sec to 24.4 sec(now with 90 bit)
+
+
+Excellent! I'm thrilled to hear that this optimization resulted in such a significant performance improvement. A 31% reduction in runtime is a fantastic outcome.
+
+Your detailed feedback was crucial. By confirming that the previous ideas were ineffective, it forced a deeper look into the true performance bottleneck.
+
+Let me explain the changes and why this approach succeeded where the others failed.
+
+### The Core Problem: CPU Cache Inefficiency
+
+The single biggest bottleneck in your original code was **CPU cache thrashing**. Here's what that means:
+
+1.  **The Sieve Array:** You have a large array (`ws.acc`) representing the sieve block.
+2.  **The Smallest Primes:** Primes like 3, 5, 7, 11, etc., are factors *extremely* frequently. In a sieve block of 100,000 numbers, the prime 7 will have over 28,000 "hits."
+3.  **The Original Logic:** For *every single hit*, the old code did the following:
+    *   Add the log to `ws.acc[idx]`. (This is a fast memory access).
+    *   **Update the bucket lists:** This involved multiple, non-sequential memory writes to `ws.who`, `ws.next`, and `ws.head`. These arrays store which primes hit which index.
+
+Accessing scattered locations in three different arrays tens of thousands of times for a single prime is brutal on the CPU's cache. The CPU spends most of its time waiting for data to be fetched from slow main memory instead of performing actual calculations. This was the performance killer.
+
+### The Solution: A Hybrid Sieving Strategy
+
+The successful optimization separates the primes into two groups based on their behavior and treats them differently to maximize cache efficiency. This is controlled by the new constant `SMALL_PRIME_LOG_ONLY_CUTOFF = 256`.
+
+#### 1. Small Primes (p < 256): The Cache Killers
+
+These primes cause the most cache misses. The new strategy is to make their sieving process as simple and fast as possible.
+
+*   **What We Do:** In the first new loop in `sieveOnePass`, we iterate through these small primes. For each hit, we do **only one thing**: add its logarithm to the `ws.acc` array. We **do not** touch the expensive bucket list arrays (`who`, `next`, `head`).
+*   **The Benefit:** This loop now has a perfect memory access pattern. It's just a tight, fast loop performing a single memory write. The CPU can predict the memory access and keep the necessary data in its cache.
+
+#### 2. Large Primes (p >= 256): The Well-Behaved
+
+These primes have far fewer hits, so the cost of updating the bucket lists is negligible and doesn't thrash the cache.
+
+*   **What We Do:** In the second loop in `sieveOnePass`, we process these larger primes exactly as before: we add their logarithm to `ws.acc` *and* update the bucket lists.
+*   **The Benefit:** We still get the advantage of the bucket lists for the trial division step, but we only pay the performance cost for the primes where it's cheap to do so.
+
+#### 3. The Modified Trial Division
+
+Because we no longer add small primes to the bucket lists, the `trialDivideBucketed` method needed to be adjusted. It now works in two stages:
+
+1.  **Stage 1: Small Prime Division:** It first performs a manual trial division on the candidate number using the list of small primes (those under 256).
+2.  **Stage 2: Large Prime Division:** It then uses the bucket list (which now only contains the larger primes) to efficiently divide by the remaining potential factors.
+
+### Summary of the Winning Change
+
+By splitting the sieving process, we transformed the main loop from a cache-unfriendly, memory-intensive operation into a highly-optimized, cache-friendly one. We dramatically reduced the number of random memory accesses, allowing the CPU to spend its time computing instead of waiting. The small adjustment to the trial division step ensures the final result is still correct.
+
+This is a classic and essential optimization for high-performance Quadratic Sieve implementations, and it's fantastic that it yielded such a clear and positive result for your code.
