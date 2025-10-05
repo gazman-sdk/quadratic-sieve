@@ -46,8 +46,9 @@ public class QuadraticThieve extends Logger {
     private final BigInteger largePrimeBoundBI;
     private final int BIG_PRIME_CUTOFF_SCALED;
 
+    private final int cores = Runtime.getRuntime().availableProcessors();
     // Threads
-    private final int threadCount = 2;
+    private final int threadCount = cores;
 
     private final VectorsShrinker vectorsShrinker = new VectorsShrinker();
     private final BigPrimesList bigPrimesList = new BigPrimesList();
@@ -89,7 +90,7 @@ public class QuadraticThieve extends Logger {
         // --- Fixed-time K5 search (10s): reports best tuples; not wired into sieve yet ---
         K5Search k5 = new K5Search(N, primeBaseInt);
         long s0 = System.currentTimeMillis();
-        var tuples = k5.runFixedTime(10_000, 6); // 10s, keep top 6
+        var tuples = k5.runFixedTime(30_000, 6); // 10s, keep top 6
         long dt = System.currentTimeMillis() - s0;
         if (tuples.isEmpty()) {
             log("K5Search: time", dt, "ms | no tuples found");
@@ -97,8 +98,8 @@ public class QuadraticThieve extends Logger {
             log("K5Search: time", dt, "ms | top", tuples.size(), "tuples (dbBits asc, alignment)");
             int i = 1;
             for (var t : tuples) {
-                log(String.format("  #%d: f %d bits, s %d bits, t %d bits, c %d bits | Q %d bits | db %d bits | alignBits %d | primes=%d",
-                        i++, t.fBits, t.sBits, t.tBits, t.cBits, t.qBits, t.dbBits, t.alignBits, t.primesCount));
+                log(String.format("  #%d: f %d bits, s %d bits, t %d bits, c %d bits | Q %d bits | db %d bits | primes=%d",
+                        i++, t.fBits, t.sBits, t.tBits, t.cBits, t.qBits, t.dbBits, t.primesCount));
             }
             var best = tuples.get(0);
             log("SearchSummary[K=5]:",
@@ -106,8 +107,7 @@ public class QuadraticThieve extends Logger {
                     "s", best.s, "(" + best.sBits + ")",
                     "t", best.t, "(" + best.tBits + ")",
                     "c", best.c, "(" + best.cBits + ")",
-                    "db", best.db, "(" + best.dbBits + ")",
-                    "alignBits", best.alignBits);
+                    "db", best.db, "(" + best.dbBits + ")");
         }
 
         log("Biggest prime is", highestPrime);
