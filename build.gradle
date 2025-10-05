@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'org.jetbrains.kotlin.jvm'
 }
 
 java {
@@ -24,6 +25,7 @@ repositories {
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
 }
 
 tasks.test {
