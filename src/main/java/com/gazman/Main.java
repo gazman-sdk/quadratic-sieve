@@ -10,7 +10,7 @@ public class Main extends Logger {
 
     private static final Random random = new Random(12);
 
-    static void main(String[] args) {
+    static void main() {
         new Main().init();
     }
 
