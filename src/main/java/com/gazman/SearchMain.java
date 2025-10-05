@@ -26,16 +26,15 @@ public class SearchMain extends Logger {
         log("---------");
         log();
 
-        // Run standalone search (self-logging)
-        ABSearch.setStaticN(input);
         ABSearch search = new ABSearch(input);
 
         int msBudget = 20_000;     // 20 seconds
-        int topK     = 6;          // show top 6
-        int pmax     = 2_000_000;  // prime ceiling for pool
+        int topK     = 16;         // keep more top results (helps surface richer A)
+        int pmax     = 5_000_000;  // richer pool → more factors possible in A
         Integer xMax = null;       // let search choose default
 
-        List<ABSearch.Poly> result = search.runFixedTime(msBudget, topK, pmax, xMax);
-        // ABSearch prints a summary itself; nothing else required here.
+        int threads = Math.max(1, Runtime.getRuntime().availableProcessors());
+        List<ABSearch.Poly> result = search.runFixedTimeParallel(msBudget, topK, pmax, xMax, threads);
+        // Results + summary are logged by ABSearch.
     }
 }

@@ -5,18 +5,27 @@ import com.gazman.math.MathUtils;
 
 import java.math.BigInteger;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Stand-alone SIQS-style polynomial chooser:
- *  - Builds A = product of distinct primes with (N|p) = +1 near target bits (~|N|/5).
- *  - Solves B^2 ≡ N (mod A) via Tonelli + CRT (squarefree A).
- *  - Recenters B close to A*x0 for x0 in [0, xMax) and scores |Ax0±B| vs the portion band.
- *  - Emits top-K (A,B,x0) tuples with per-second speed logs.
+ * Stand-alone SIQS-style polynomial chooser (MULTITHREADED).
  *
- * No dependency on factor-base or sieve; only uses MathUtils.ressol(...) for sqrt mod p.
+ *  - Builds A = product of distinct primes with (N|p)=+1 near target bits (~|N|/5),
+ *    biased toward smaller primes to make A "richer" (more prime factors).
+ *  - Precomputes Tonelli roots sqrt(N) mod p for all primes in the pool.
+ *  - Per-thread beam exploration; for each A, creates several CRT sign-pattern variants for B,
+ *    tries multiple centers x0, recenters B near A*x0, and scores |Ax0±B|.
+ *  - Prefers tuples close to the portion band and richer A (more prime factors).
+ *  - Aggregates top-K across threads; prints per-second speed logs from a logger thread.
+ *
+ * Only depends on MathUtils.ressol(...)
  */
 public class ABSearch extends Logger {
 
+    // ---------- Public result tuple ----------
     public static final class Poly {
         public final BigInteger A, B;
         public final long x0;
@@ -30,35 +39,60 @@ public class ABSearch extends Logger {
         }
     }
 
-    // Accept band around |N|/5
-    private static final int BAND_LO = 6;
+    // Beam node (accessible so helpers can use it)
+    static final class Node {
+        final BigInteger A;
+        final ArrayList<Integer> primes; // list of primes in A
+        final int bits;
+        Node(BigInteger A, ArrayList<Integer> primes, int bits) {
+            this.A = A; this.primes = primes; this.bits = bits;
+        }
+    }
+
+    // Root for a single prime
+    private static final class PrimeRoot {
+        final int p;
+        final BigInteger P;
+        final BigInteger r; // one root (the other is P - r)
+        PrimeRoot(int p, BigInteger P, BigInteger r) { this.p = p; this.P = P; this.r = r; }
+    }
+
+    // ---------- Tunables ----------
+    private static final int BAND_LO = 6;          // acceptable band around portion (|N|/5)
     private static final int BAND_HI = 8;
 
+    private static final int DESIRED_MIN_PRIMES = 6; // prefer richer A
+    private static final int RICH_WEIGHT = 1;        // penalty per missing prime
+
+    private static final int BEAM = 18;              // per-thread beam width
+    private static final int EXT_TRIES_PER_NODE = 24;
+    private static final int A_SLACK_BITS = 14;      // allow A up to portion + slack
+
+    private static final int B_VARIANTS = 6;         // CRT sign-pattern variants per A
+
+    // bias toward smaller primes when constructing A
+    private static final double SMALL_FRACTION = 0.65;   // first 65% of pool considered "small"
+    private static final double SMALL_DRAW_PROB = 0.85;  // prefer drawing from the small segment
+
     private final BigInteger N;
-    private final Random rnd = new Random(31337);
 
     public ABSearch(BigInteger N) { this.N = N; }
 
-    /** Generate primes up to 'limit' with a basic sieve. */
-    private static int[] primesUpTo(int limit) {
-        boolean[] isComp = new boolean[limit + 1];
-        ArrayList<Integer> ps = new ArrayList<>();
-        for (int i = 2; i * i <= limit; i++) {
-            if (!isComp[i]) for (int j = i * i; j <= limit; j += i) isComp[j] = true;
-        }
-        for (int i = 2; i <= limit; i++) if (!isComp[i]) ps.add(i);
-        return ps.stream().mapToInt(i -> i).toArray();
+    /** Convenience: single-thread backwards-compatible entry. */
+    public List<Poly> runFixedTime(int msBudget, int topK, int primeCeil, Integer xMaxOpt) {
+        int threads = Math.max(1, Runtime.getRuntime().availableProcessors());
+        return runFixedTimeParallel(msBudget, topK, primeCeil, xMaxOpt, threads);
     }
 
-    /** Main entry: run for msBudget, return up to topK polynomials. */
-    public List<Poly> runFixedTime(int msBudget, int topK, int primeCeil, Integer xMaxOpt) {
+    /** Multithreaded entry: uses 'threads' workers. */
+    public List<Poly> runFixedTimeParallel(int msBudget, int topK, int primeCeil, Integer xMaxOpt, int threads) {
         final long t0 = System.currentTimeMillis();
         final long tend = t0 + msBudget;
 
-        // 1) Build pool: primes with (N|p)=+1
-        int[] primes = primesUpTo(primeCeil);
+        // 1) Build pool: primes with (N|p) = +1
+        int[] primesRaw = primesUpTo(primeCeil);
         ArrayList<Integer> pool = new ArrayList<>(8192);
-        for (int p : primes) {
+        for (int p : primesRaw) {
             if (p <= 2) continue;
             if (MathUtils.isRootInQuadraticResidues(N, BigInteger.valueOf(p))) {
                 pool.add(p);
@@ -68,161 +102,238 @@ public class ABSearch extends Logger {
             log("ABSearch: pool empty — no primes with (N|p)=+1 under", primeCeil);
             return List.of();
         }
+        final int poolMax = pool.get(pool.size() - 1);
 
-        // 2) Targets
+        // 2) Precompute sqrt(N) mod p once (Tonelli roots)
+        final HashMap<Integer, PrimeRoot> rootMap = new HashMap<>(pool.size() * 2);
+        for (int p : pool) {
+            BigInteger P = BigInteger.valueOf(p);
+            long[] rr = MathUtils.ressol(p, N.mod(P).longValue());
+            long r0 = -1;
+            for (long v : rr) if (v >= 0) { r0 = v; break; }
+            if (r0 < 0) continue; // should not happen if Legendre=+1
+            rootMap.put(p, new PrimeRoot(p, P, BigInteger.valueOf(r0)));
+        }
+
+        // 3) Targets and params
         final int nbits = N.bitLength();
-        final int portion = Math.max(24, nbits / 5);
-        final int A_target = portion;     // aim A near |N|/5
-        final int largestPoolPrime = pool.get(pool.size() - 1);
-        final int xMax = (xMaxOpt != null) ? xMaxOpt : Math.min(200_000, largestPoolPrime);
+        final int portion = Math.max(24, nbits / 5);  // ~ |N|/5
+        final int A_target = portion;
+        final int xMax = (xMaxOpt != null) ? xMaxOpt : Math.min(300_000, poolMax);
         final int xBits = Math.max(1, Integer.toBinaryString(Math.max(3, xMax)).length() - 1);
 
         log("ABSearch: pool", pool.size(), "| Nbits", nbits,
                 "portion", portion, "| A_target", A_target,
-                "| xMax", xMax, "xBits", xBits,
-                "| p_max", largestPoolPrime);
+                "| xMax", xMax, "xBits", xBits, "| p_max", poolMax,
+                "| threads", threads);
 
-        // 3) Beam search for A near target bits
-        final int BEAM = 14;
-        record Node(BigInteger A, ArrayList<Integer> primes, int bits) {}
+        // 4) Weights for biased prime sampling (prefer small)
+        final double[] cumw = buildWeights(pool);
+
+        // 5) Telemetry counters (shared)
+        final AtomicLong attempts = new AtomicLong(0);
+        final AtomicLong crts     = new AtomicLong(0);
+        final AtomicLong accepts  = new AtomicLong(0);
+        final AtomicInteger bestLp = new AtomicInteger(Integer.MAX_VALUE);
+        final AtomicInteger bestLm = new AtomicInteger(Integer.MAX_VALUE);
+        final AtomicBoolean stop   = new AtomicBoolean(false);
+
+        // 6) Workers
+        ExecutorService exec = Executors.newFixedThreadPool(threads);
+        ArrayList<Future<PriorityQueue<Poly>>> futures = new ArrayList<>(threads);
+
+        for (int tid = 0; tid < threads; tid++) {
+            final int threadId = tid;
+            futures.add(exec.submit(() ->
+                    workerSearch(threadId, tend, pool, cumw, rootMap, portion, A_target, xMax,
+                            attempts, crts, accepts, bestLp, bestLm, topK)
+            ));
+        }
+
+        // 7) Logger thread
+        Thread logger = new Thread(() -> {
+            long last = System.currentTimeMillis();
+            long a0 = 0, c0 = 0, ac0 = 0;
+            while (!stop.get()) {
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                long now = System.currentTimeMillis();
+                long a1 = attempts.get(), c1 = crts.get(), ac1 = accepts.get();
+                double sec = Math.max(1, (now - last)) / 1000.0;
+                log("ABSearchSpeed:",
+                        Math.round((a1 - a0) / sec) / 1000, "kAtt/s,",
+                        "crt", Math.round((c1 - c0) / sec) / 1000, "k/s,",
+                        "accept", (int) Math.round((ac1 - ac0) / sec), "/s |",
+                        "keep", "-", "| best(L+,L-)",
+                        (bestLp.get() == Integer.MAX_VALUE ? -1 : bestLp.get()),
+                        (bestLm.get() == Integer.MAX_VALUE ? -1 : bestLm.get()));
+                last = now; a0 = a1; c0 = c1; ac0 = ac1;
+                if (System.currentTimeMillis() >= tend) break;
+            }
+        }, "ABSearch-logger");
+        logger.setDaemon(true);
+        logger.start();
+
+        // 8) Collect results
+        ArrayList<Poly> collected = new ArrayList<>();
+        try {
+            for (Future<PriorityQueue<Poly>> f : futures) {
+                PriorityQueue<Poly> pq = f.get();
+                collected.addAll(pq);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            stop.set(true);
+            exec.shutdownNow();
+            try { logger.join(200); } catch (InterruptedException ignored) {}
+        }
+
+        // 9) Rank and print results
+        collected.sort(Comparator
+                .comparingInt((Poly p) -> compositeScore(p, portion))
+                .thenComparingInt(p -> Math.max(p.Lp_bits, p.Lm_bits)));
+
+        if (collected.isEmpty()) {
+            log("ABSearch: no tuples found | Nbits", N.bitLength(),
+                    "portion", portion);
+            return List.of();
+        }
+
+        int show = Math.min(topK, collected.size());
+        log("ABSearch: top", show, "polynomials (closest to portion band; richer A preferred)");
+        for (int i = 0; i < show; i++) {
+            Poly P = collected.get(i);
+            log("  #", (i + 1), ": A", P.A_bits, "bits, B", P.B_bits, "bits",
+                    "| x0", P.x0, "| L+~", P.Lp_bits, "L-~", P.Lm_bits,
+                    "| primes=", P.primesCount);
+        }
+        Poly best = collected.get(0);
+        log("SearchSummary[SIQS]: A", best.A, "(", best.A_bits, ")",
+                "B", best.B, "(", best.B_bits, ")",
+                "x0", best.x0, "| L+~", best.Lp_bits, "L-~", best.Lm_bits,
+                "| primes=", best.primesCount);
+
+        return collected.subList(0, show);
+    }
+
+    // ---------- Worker ----------
+
+    private PriorityQueue<Poly> workerSearch(
+            int threadId,
+            long tend,
+            ArrayList<Integer> pool,
+            double[] cumw,
+            HashMap<Integer, PrimeRoot> rootMap,
+            int portion,
+            int A_target,
+            int xMax,
+            AtomicLong attempts,
+            AtomicLong crts,
+            AtomicLong accepts,
+            AtomicInteger bestLp,
+            AtomicInteger bestLm,
+            int topK
+    ) {
+        final ThreadLocalRandom tlr = ThreadLocalRandom.current();
+
+        // per-thread keep (worst on top)
+        PriorityQueue<Poly> keep = new PriorityQueue<>(Comparator
+                .comparingInt((Poly p) -> compositeScore(p, portion))
+                .thenComparingInt(p -> Math.max(p.Lp_bits, p.Lm_bits))
+                .reversed());
 
         ArrayList<Node> beam = new ArrayList<>();
         beam.add(new Node(BigInteger.ONE, new ArrayList<>(), 0));
 
-        // Keep best tuples (worst on top)
-        PriorityQueue<Poly> keep = new PriorityQueue<>(Comparator
-                .comparingInt((Poly p) -> bandScore(p, portion))
-                .thenComparingInt(p -> Math.max(p.Lp_bits, p.Lm_bits))
-                .reversed());
-
-        // Speed logs
-        long lastLog = System.currentTimeMillis();
-        long attPer = 0, crtPer = 0, accPer = 0;
-        int bestLpPer = Integer.MAX_VALUE, bestLmPer = Integer.MAX_VALUE;
-
         while (System.currentTimeMillis() < tend) {
-            // Expand one round
-            ArrayList<Node> next = new ArrayList<>(BEAM * 16);
+            // expand beam one round
+            ArrayList<Node> next = new ArrayList<>(BEAM * EXT_TRIES_PER_NODE);
             for (Node nd : beam) {
-                // try a handful of random extensions
-                for (int k = 0; k < 18; k++) {
-                    int p = pool.get(rnd.nextInt(pool.size()));
-                    if (nd.primes.contains(p)) continue;        // squarefree A
+                for (int k = 0; k < EXT_TRIES_PER_NODE; k++) {
+                    int pickIdx = drawIndex(pool.size(), cumw, tlr);
+                    int p = pool.get(pickIdx);
+                    if (nd.primes.contains(p)) continue;            // squarefree A
                     BigInteger A2 = nd.A.multiply(BigInteger.valueOf(p));
                     int ab = A2.bitLength();
-                    if (ab > A_target + 12) continue;           // slack
+                    if (ab > A_target + A_SLACK_BITS) continue;     // slack above target
                     ArrayList<Integer> list = new ArrayList<>(nd.primes.size() + 1);
-                    list.addAll(nd.primes); list.add(p);
+                    list.addAll(nd.primes);
+                    list.add(p);
                     next.add(new Node(A2, list, ab));
                 }
             }
-            // also keep current nodes to be tested
             next.addAll(beam);
 
-            // prune by closeness to A_target and number of factors
             next.sort(Comparator
                     .comparingInt((Node n) -> Math.abs(n.bits - A_target))
                     .thenComparingInt(n -> -n.primes.size()));
             beam = new ArrayList<>(next.subList(0, Math.min(BEAM, next.size())));
 
-            // For each node, solve B^2 ≡ N (mod A), then try a few centers
+            // For each node, build B variants and test several centers
             for (Node nd : beam) {
                 if (nd.A.equals(BigInteger.ONE)) continue;
-                attPer++;
+                attempts.incrementAndGet();
 
-                BigInteger Bmod = sqrtNModComposite(nd.A, nd.primes);
-                if (Bmod == null) continue;
-                crtPer++;
+                // Build PrimeRoot list from cache
+                ArrayList<PrimeRoot> roots = new ArrayList<>(nd.primes.size());
+                boolean ok = true;
+                for (int p : nd.primes) {
+                    PrimeRoot pr = rootMap.get(p);
+                    if (pr == null) { ok = false; break; }
+                    roots.add(pr);
+                }
+                if (!ok) continue;
 
+                List<BigInteger> bResidues = buildBVariants(roots, nd.A, B_VARIANTS);
+                if (bResidues.isEmpty()) continue;
+                crts.incrementAndGet();
+
+                long[] centers = proposeCenters(xMax, tlr);
                 Poly bestLocal = null;
-                // Try three centers (middle, 1/3, random)
-                for (int trial = 0; trial < 3; trial++) {
-                    long x0 = switch (trial) {
-                        case 0 -> xMax / 2L;
-                        case 1 -> xMax / 3L;
-                        default -> 1 + rnd.nextInt(Math.max(2, xMax - 1));
-                    };
-                    BigInteger target = nd.A.multiply(BigInteger.valueOf(x0));
-                    BigInteger B = recenterToTarget(Bmod, nd.A, target);
+                for (BigInteger Bmod : bResidues) {
+                    for (long x0 : centers) {
+                        BigInteger target = nd.A.multiply(BigInteger.valueOf(x0));
+                        BigInteger B = recenterToTarget(Bmod, nd.A, target);
+                        Poly cand = scorePoly(nd, B, x0);
 
-                    BigInteger Lp = nd.A.multiply(BigInteger.valueOf(x0)).add(B).abs();
-                    BigInteger Lm = nd.A.multiply(BigInteger.valueOf(x0)).subtract(B).abs();
-                    int lpBits = Lp.bitLength();
-                    int lmBits = Lm.bitLength();
+                        // update best L±
+                        updateMin(bestLp, cand.Lp_bits);
+                        updateMin(bestLm, cand.Lm_bits);
 
-                    Poly poly = new Poly(nd.A, B, x0, nd.bits, B.bitLength(),
-                            lpBits, lmBits, nd.primes.size());
-
-                    if (bestLocal == null ||
-                            bandScore(poly, portion) < bandScore(bestLocal, portion) ||
-                            (bandScore(poly, portion) == bandScore(bestLocal, portion)
-                                    && Math.max(lpBits, lmBits) < Math.max(bestLocal.Lp_bits, bestLocal.Lm_bits))) {
-                        bestLocal = poly;
+                        bestLocal = better(bestLocal, cand, portion);
                     }
                 }
 
-                if (bestLocal != null) {
-                    bestLpPer = Math.min(bestLpPer, bestLocal.Lp_bits);
-                    bestLmPer = Math.min(bestLmPer, bestLocal.Lm_bits);
-
-                    if (inBand(bestLocal.Lp_bits, portion) && inBand(bestLocal.Lm_bits, portion)) {
-                        accPer++;
-                        if (keep.size() < topK) keep.add(bestLocal);
-                        else {
-                            Poly worst = keep.peek();
-                            if (worseThan(worst, bestLocal, portion)) {
-                                keep.poll(); keep.add(bestLocal);
-                            }
+                if (bestLocal != null && inBand(bestLocal.Lp_bits, portion) && inBand(bestLocal.Lm_bits, portion)) {
+                    accepts.incrementAndGet();
+                    if (keep.size() < topK) keep.add(bestLocal);
+                    else {
+                        Poly worst = keep.peek();
+                        if (worseThan(worst, bestLocal, portion)) {
+                            keep.poll(); keep.add(bestLocal);
                         }
                     }
-                }
-
-                // per-second speed log
-                long now = System.currentTimeMillis();
-                if (now - lastLog >= 1000) {
-                    double sec = (now - lastLog) / 1000.0;
-                    log("ABSearchSpeed:",
-                            Math.round(attPer / sec) / 1000, "kAtt/s,",
-                            "crt", Math.round(crtPer / sec) / 1000, "k/s,",
-                            "accept", Math.round(accPer / sec), "/s |",
-                            "keep", keep.size(), "| best(L+,L-)",
-                            (bestLpPer == Integer.MAX_VALUE ? -1 : bestLpPer),
-                            (bestLmPer == Integer.MAX_VALUE ? -1 : bestLmPer));
-                    attPer = crtPer = accPer = 0;
-                    bestLpPer = bestLmPer = Integer.MAX_VALUE;
-                    lastLog = now;
                 }
 
                 if (System.currentTimeMillis() >= tend) break;
             }
         }
 
-        ArrayList<Poly> out = new ArrayList<>(keep);
-        out.sort(Comparator
-                .comparingInt((Poly p) -> bandScore(p, portion))
-                .thenComparingInt(p -> Math.max(p.Lp_bits, p.Lm_bits)));
-
-        if (out.isEmpty()) {
-            log("ABSearch: no tuples found | Nbits", N.bitLength(),
-                    "portion", portion, "A_target", A_target, "xMax", xMax);
-        } else {
-            log("ABSearch: top", Math.min(topK, out.size()), "polynomials (closest to portion band)");
-            for (int i = 0; i < Math.min(topK, out.size()); i++) {
-                Poly P = out.get(i);
-                log("  #", (i + 1), ": A", P.A_bits, "bits, B", P.B_bits, "bits",
-                        "| x0", P.x0, "| L+~", P.Lp_bits, "L-~", P.Lm_bits,
-                        "| primes=", P.primesCount);
-            }
-            Poly best = out.get(0);
-            log("SearchSummary[SIQS]: A", best.A, "(", best.A_bits, ")",
-                    "B", best.B, "(", best.B_bits, ")",
-                    "x0", best.x0, "| L+~", best.Lp_bits, "L-~", best.Lm_bits,
-                    "| primes=", best.primesCount);
-        }
-        return out;
+        return keep;
     }
 
-    // ---------- number helpers ----------
+    // ---------- Helpers ----------
+
+    /** Generate primes up to 'limit' with a basic sieve. */
+    private static int[] primesUpTo(int limit) {
+        boolean[] isComp = new boolean[Math.max(3, limit + 1)];
+        ArrayList<Integer> ps = new ArrayList<>();
+        for (int i = 2; i * i <= limit; i++) {
+            if (!isComp[i]) for (int j = i * i; j <= limit; j += i) isComp[j] = true;
+        }
+        for (int i = 2; i <= limit; i++) if (!isComp[i]) ps.add(i);
+        return ps.stream().mapToInt(i -> i).toArray();
+    }
 
     private static boolean inBand(int x, int portion) {
         return x >= portion - BAND_LO && x <= portion + BAND_HI;
@@ -232,41 +343,95 @@ public class ABSearch extends Logger {
         return Math.abs(p.Lp_bits - portion) + Math.abs(p.Lm_bits - portion);
     }
 
+    private static int richnessPenalty(Poly p) {
+        return Math.max(0, DESIRED_MIN_PRIMES - p.primesCount) * RICH_WEIGHT;
+    }
+
+    private static int compositeScore(Poly p, int portion) {
+        return bandScore(p, portion) + richnessPenalty(p);
+    }
+
     private static boolean worseThan(Poly a, Poly b, int portion) {
-        int sa = bandScore(a, portion), sb = bandScore(b, portion);
+        int sa = compositeScore(a, portion), sb = compositeScore(b, portion);
         if (sa != sb) return sa > sb;
         return Math.max(a.Lp_bits, a.Lm_bits) > Math.max(b.Lp_bits, b.Lm_bits);
     }
 
-    /** Solve B^2 ≡ N (mod A) with A squarefree (product of distinct odd primes). */
-    private static BigInteger sqrtNModComposite(BigInteger A, ArrayList<Integer> primes) {
-        BigInteger r = BigInteger.ZERO, m = BigInteger.ONE;
-        for (int p : primes) {
-            if (p <= 2) return null;
-            BigInteger P = BigInteger.valueOf(p);
-            long[] roots = MathUtils.ressol(p, NmodP(P));
-            long r0 = -1;
-            for (long v : roots) { if (v >= 0) { r0 = v; break; } }
-            if (r0 < 0) return null;
-            BigInteger s = BigInteger.valueOf(r0);
-
-            BigInteger rResidue = r.mod(m);
-            BigInteger r1 = crtCombine(rResidue, m, s, P);
-            BigInteger r2 = crtCombine(rResidue, m, P.subtract(s).mod(P), P);
-            if (r1 == null || r2 == null) return null;
-
-            BigInteger mNew = m.multiply(P);
-            // pick representative closer to 0 to keep B magnitude controlled
-            BigInteger c1 = recenterToTarget(r1, mNew, BigInteger.ZERO);
-            BigInteger c2 = recenterToTarget(r2, mNew, BigInteger.ZERO);
-            r = (c1.abs().compareTo(c2.abs()) <= 0) ? c1 : c2;
-            m = mNew;
-        }
-        return m.equals(A) ? r : null;
+    private Poly better(Poly cur, Poly cand, int portion) {
+        if (cur == null) return cand;
+        return worseThan(cur, cand, portion) ? cand : cur;
     }
 
-    private static long NmodP(BigInteger P) {
-        return BigIntegerHolder.Ntmp.mod(P).longValue(); // see holder below
+    private Poly scorePoly(Node nd, BigInteger B, long x0) {
+        BigInteger Ax = nd.A.multiply(BigInteger.valueOf(x0));
+        BigInteger Lp = Ax.add(B).abs();
+        BigInteger Lm = Ax.subtract(B).abs();
+        return new Poly(nd.A, B, x0, nd.bits, B.bitLength(), Lp.bitLength(), Lm.bitLength(), nd.primes.size());
+    }
+
+    /** Propose centers per A (uses per-thread RNG). */
+    private long[] proposeCenters(int xMax, ThreadLocalRandom tlr) {
+        if (xMax <= 3) return new long[]{1};
+        long mid = xMax / 2L;
+        long oneThird = xMax / 3L;
+        long twoThird = (2L * xMax) / 3L;
+        long oneQuarter = xMax / 4L;
+        long threeQuarter = (3L * xMax) / 4L;
+        long rand = 1 + tlr.nextInt(Math.max(2, xMax - 1));
+        return dedup(new long[]{mid, oneThird, twoThird, oneQuarter, threeQuarter, 1, rand});
+    }
+
+    private static long[] dedup(long[] a) {
+        Arrays.sort(a);
+        int w = 0;
+        for (int i = 0; i < a.length; i++) {
+            if (i == 0 || a[i] != a[i - 1]) a[w++] = a[i];
+        }
+        return Arrays.copyOf(a, w);
+    }
+
+    // ----- Build several residues B (mod A) by flipping per-prime signs -----
+    private List<BigInteger> buildBVariants(List<PrimeRoot> roots, BigInteger A, int variants) {
+        ArrayList<BigInteger> out = new ArrayList<>(variants);
+        HashSet<BigInteger> seen = new HashSet<>(variants * 2);
+
+        // base (+ + + ...)
+        BigInteger base = crtCombineAll(roots, null);
+        if (base != null) {
+            BigInteger canon = base.mod(A);
+            if (seen.add(canon)) out.add(canon);
+            BigInteger neg = A.subtract(canon).mod(A);
+            if (seen.add(neg)) out.add(neg);
+        }
+
+        // random patterns
+        int n = roots.size();
+        int flips = Math.max(1, (int) Math.ceil(n / 3.0)); // flip ~1/3 per variant
+        ThreadLocalRandom tlr = ThreadLocalRandom.current();
+        for (int t = 0; t < variants && out.size() < variants; t++) {
+            boolean[] sign = new boolean[n];
+            for (int i = 0; i < flips; i++) sign[tlr.nextInt(n)] = true; // true => use (P - r)
+            BigInteger v = crtCombineAll(roots, sign);
+            if (v == null) continue;
+            BigInteger canon = v.mod(A);
+            if (seen.add(canon)) out.add(canon);
+        }
+        return out;
+    }
+
+    /** CRT combine all residues with optional sign flips. sign[i]==true uses (P_i - r_i). */
+    private BigInteger crtCombineAll(List<PrimeRoot> roots, boolean[] sign) {
+        BigInteger R = BigInteger.ZERO;
+        BigInteger M = BigInteger.ONE;
+        for (int i = 0; i < roots.size(); i++) {
+            PrimeRoot pr = roots.get(i);
+            BigInteger residue = (sign != null && sign[i]) ? pr.P.subtract(pr.r).mod(pr.P) : pr.r;
+            BigInteger nxt = crtCombine(R.mod(M), M, residue, pr.P);
+            if (nxt == null) return null;
+            R = nxt;
+            M = M.multiply(pr.P);
+        }
+        return R;
     }
 
     /** CRT combine (r mod m) and (x mod n), gcd=1, else null. */
@@ -291,13 +456,49 @@ public class ABSearch extends Logger {
         return r.add(k.multiply(M));
     }
 
-    // Small static holder to let sqrtNModComposite fetch N mod p without closing over 'this'
-    private static final class BigIntegerHolder {
-        static BigInteger Ntmp;
+    // ----- weighted sampling over pool (prefer small primes) -----
+    private static double[] buildWeights(ArrayList<Integer> pool) {
+        int n = pool.size();
+        int smallCut = Math.max(1, (int) Math.floor(n * SMALL_FRACTION));
+        double[] w = new double[n];
+        double sumSmall = 0, sumLarge = 0;
+
+        for (int i = 0; i < smallCut; i++) {
+            w[i] = 1.0 / pool.get(i);
+            sumSmall += w[i];
+        }
+        for (int i = smallCut; i < n; i++) {
+            // still allow picking large primes but with lower probability
+            w[i] = (1.0 / pool.get(i)) * (1.0 - SMALL_DRAW_PROB);
+            sumLarge += w[i];
+        }
+
+        double total = sumSmall + sumLarge;
+        double acc = 0;
+        for (int i = 0; i < n; i++) {
+            acc += w[i] / total;
+            w[i] = acc; // cumulative
+        }
+        w[n - 1] = 1.0;
+        return w;
     }
 
-    /** Entrypoint-friendly helper: set static N for NmodP. */
-    public static void setStaticN(BigInteger N) {
-        BigIntegerHolder.Ntmp = N;
+    private static int drawIndex(int n, double[] cumw, ThreadLocalRandom tlr) {
+        double u = tlr.nextDouble();
+        int lo = 0, hi = n - 1, ans = hi;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (u <= cumw[mid]) { ans = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        return ans;
+    }
+
+    private static void updateMin(AtomicInteger box, int val) {
+        for (;;) {
+            int cur = box.get();
+            if (val >= cur) return;
+            if (box.compareAndSet(cur, val)) return;
+        }
     }
 }
