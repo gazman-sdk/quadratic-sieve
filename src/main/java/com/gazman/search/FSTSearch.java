@@ -4,34 +4,49 @@ import com.gazman.factor.Logger;
 import com.gazman.math.SqrRoot;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 /**
- * Search for k=5 coefficients (f, s, t, c) satisfying (preferably)
- * c^2 = (f s t)^2 - 4N.
- * <p>
- * Notes:
- * - Exact hits exist for semiprimes only at m = p + q (Fermat); they can be very far
- * from 2*sqrt(N), so a short linear scan usually won't find them.
- * - This implementation still checks for exact squares, but ALSO accepts approximate
- * candidates by rounding c ≈ sqrt(m^2 - 4N) and adding a small "link residual"
- * penalty to the score: residual = |c^2 - (m^2 - 4N)|.
- * - Result: you always get the best candidate within the time budget (never throw).
+ * FSTSearch with shape-aware preselection:
+ *  - Stage 1 uses residual lower bound to gate work,
+ *    then DOES a shallow prime-only factor & greedy F/S/T to predict RMS.
+ *  - Stage 2 unchanged in spirit, but with an early break in trial division.
+ *  - Keeps all previous speed wins (incremental sqrt, prime cache, bounded heaps).
  */
 public class FSTSearch extends Logger {
 
-    // Tunables
+    // ---------- Tunables ----------
     public static final int SEARCH_TIME_MS = 20_000;
+
+    // Stage 2 (finalization) full trial-division limit:
     private static final int TRIAL_DIV_LIMIT = 1_000_000;
-    private static final int MAX_CANDIDATES = 64;
-    // Weight for the N-link residual in the score: add linkResidualBits * RESIDUAL_WEIGHT to RMS size error.
+
+    // Stage 1 (preselection) VERY shallow limit (cheap):
+    private static final int PRE_TRIAL_DIV_LIMIT = 100_000;
+
+    private static final int MAX_FINAL_CANDIDATES = 64;
+    private static final int PRESELECT_CAP = 256;
+
+    // Weight of N-link residual (bits) added to RMS
     private static final double RESIDUAL_WEIGHT = 0.15;
+
+    // ---------- Inputs / derived ----------
     private final BigInteger N;
     private final BigInteger FOUR_N;
     private final int nBits;
     private final int portionBits;
+
+    // Prime sieve cache
+    private static final int[] PRIMES;             // primes up to TRIAL_DIV_LIMIT
+    private static final BigInteger[] PRIMES_BI;   // cached BigInteger versions
+
+    static {
+        PRIMES = sievePrimesUpTo(TRIAL_DIV_LIMIT);
+        PRIMES_BI = new BigInteger[PRIMES.length];
+        for (int i = 0; i < PRIMES.length; i++) {
+            PRIMES_BI[i] = BigInteger.valueOf(PRIMES[i]);
+        }
+    }
 
     public FSTSearch(BigInteger n) {
         this.N = n;
@@ -40,12 +55,251 @@ public class FSTSearch extends Logger {
         this.portionBits = Math.max(24, nBits / 5);
     }
 
-    private static BigInteger sqrtIfPerfect(BigInteger n) {
-        BigInteger r = SqrRoot.bigIntSqRootFloor(n);
-        return r.multiply(r).equals(n) ? r : null;
+    private static int[] sievePrimesUpTo(int limit) {
+        boolean[] isComposite = new boolean[limit + 1];
+        for (int i = 2; i * i <= limit; i++) {
+            if (!isComposite[i]) {
+                for (int j = i * i; j <= limit; j += i) isComposite[j] = true;
+            }
+        }
+        int count = 0;
+        for (int i = 2; i <= limit; i++) if (!isComposite[i]) count++;
+        int[] primes = new int[count];
+        int idx = 0;
+        for (int i = 2; i <= limit; i++) if (!isComposite[i]) primes[idx++] = i;
+        return primes;
     }
 
-    private static List<BigInteger> factorByTrialDivision(BigInteger m, int limit) {
+    private static BigInteger sqrtFloor(BigInteger n) {
+        return SqrRoot.bigIntSqRootFloor(n);
+    }
+
+    // ---------- Public API ----------
+    public Poly findBestPolynomial(long sieveM) {
+        log("FSTSearch(k=5): start | Nbits", nBits, "| target portion", portionBits, "bits");
+
+        final long tEnd = System.nanoTime() + SEARCH_TIME_MS * 1_000_000L;
+
+        final BigInteger sqrtN = SqrRoot.bigIntSqRootCeil(N);
+        final BigInteger m0 = sqrtN.shiftLeft(1); // ~ 2*sqrt(N)
+
+        // Prepare incremental walks for m+delta and m-delta
+        BigInteger mPlus = m0;
+        BigInteger mMinus = m0;
+
+        BigInteger c2_0 = m0.multiply(m0).subtract(FOUR_N);
+        if (c2_0.signum() <= 0) c2_0 = BigInteger.ONE; // guard
+        BigInteger cFloor0 = sqrtFloor(c2_0);
+
+        BigInteger c2Plus  = c2_0;
+        BigInteger cPlus   = cFloor0;
+
+        BigInteger c2Minus = c2_0;
+        BigInteger cMinus  = cFloor0;
+
+        // Keep best PRESELECT_CAP by predicted full score (smaller is better)
+        final PriorityQueue<PreCand> preHeap = new PriorityQueue<>(
+                PRESELECT_CAP, Comparator.comparingDouble((PreCand p) -> p.preScore).reversed()
+        );
+
+        long checked = 0;
+        long lastLog = System.nanoTime();
+
+        // ---- Stage 1: residual-gated, shape-aware preselection ----
+        for (long delta = 0; System.nanoTime() < tEnd; delta++) {
+
+            // mPlus (delta >= 0)
+            tryStashCandidate(preHeap, mPlus, cPlus, c2Plus, sieveM);
+
+            // mMinus (delta > 0)
+            if (delta > 0 && mMinus.signum() > 0) {
+                tryStashCandidate(preHeap, mMinus, cMinus, c2Minus, sieveM);
+            }
+
+            checked += (delta == 0 ? 1 : 2);
+
+            // Advance incrementally
+            {   // mPlus -> mPlus+1
+                BigInteger twoM = mPlus.shiftLeft(1);
+                c2Plus = c2Plus.add(twoM).add(BigInteger.ONE);
+                mPlus = mPlus.add(BigInteger.ONE);
+                cPlus = adjustSqrtFloorUp(cPlus, c2Plus);
+            }
+            if (mMinus.signum() > 0) { // mMinus -> mMinus-1
+                BigInteger twoM = mMinus.shiftLeft(1);
+                c2Minus = c2Minus.subtract(twoM).add(BigInteger.ONE);
+                mMinus = mMinus.subtract(BigInteger.ONE);
+                cMinus = adjustSqrtFloorDown(cMinus, c2Minus);
+            }
+
+            long now = System.nanoTime();
+            if (now - lastLog >= 1_000_000_000L) {
+                lastLog = now;
+                log("FSTSearch[stage1]: checked~", checked, "m's | preHeap", preHeap.size());
+            }
+
+            // Leave a couple seconds for stage 2 once we're full
+            if (preHeap.size() >= PRESELECT_CAP && now + 3_000_000_000L > tEnd) break;
+        }
+
+        if (preHeap.isEmpty()) {
+            log("FSTSearch: preselect empty; manufacturing fallback.");
+            PreCand p = buildPreCandResidualOnly(m0, cFloor0, c2_0);
+            return finalizeOne(p, sieveM);
+        }
+
+        // ---- Stage 2: finalize best few ----
+        ArrayList<PreCand> bestPre = new ArrayList<>(preHeap.size());
+        while (!preHeap.isEmpty()) bestPre.add(preHeap.poll());
+        bestPre.sort(Comparator.comparingDouble(p -> p.preScore)); // best first
+
+        ArrayList<Poly> finals = new ArrayList<>();
+        for (int i = 0; i < bestPre.size(); i++) {
+            if (System.nanoTime() >= tEnd) break;
+            if (finals.size() >= MAX_FINAL_CANDIDATES) break;
+
+            PreCand p = bestPre.get(i);
+            Poly poly = finalizeOne(p, sieveM);
+            finals.add(poly);
+
+            if ((i & 7) == 7) log("FSTSearch[stage2]: finalized", finals.size(), "/", Math.min(bestPre.size(), MAX_FINAL_CANDIDATES));
+        }
+
+        if (finals.isEmpty()) {
+            log("FSTSearch: finals empty; forcing finalize best pre.");
+            finals.add(finalizeOne(bestPre.get(0), sieveM));
+        }
+
+        finals.sort(Comparator.comparingDouble(p -> p.score));
+        Poly best = finals.get(0);
+        log("FSTSearch: best score", String.format("%.2f", best.score), "| fBits", best.f.bitLength(),
+                "sBits", best.s.bitLength(), "tBits", best.t.bitLength(),
+                "| cBits", best.c.bitLength(), "| linkResidualBits", best.linkResidualBits);
+        return best;
+    }
+
+    // ---------- Stage 1: gated preselection ----------
+    private static final class PreCand {
+        final BigInteger m, cFloor, c2;
+        final int residualBits;
+        final double preScore; // predicted full score (RMS + residual weight)
+
+        private PreCand(BigInteger m, BigInteger cFloor, BigInteger c2, int residualBits, double preScore) {
+            this.m = m;
+            this.cFloor = cFloor;
+            this.c2 = c2;
+            this.residualBits = residualBits;
+            this.preScore = preScore;
+        }
+    }
+
+    private void tryStashCandidate(PriorityQueue<PreCand> heap,
+                                   BigInteger m, BigInteger cFloor, BigInteger c2,
+                                   long sieveM) {
+        if (m.signum() <= 0 || c2.signum() <= 0) return;
+
+        // Cheap lower bound: residual contribution only
+        int residualBits = computeResidualBits(cFloor, c2);
+        double lowerBound = residualBits * RESIDUAL_WEIGHT;
+
+        // Only do shape-aware estimation if it might be competitive against worst in heap
+        PreCand worst = heap.peek(); // reversed comparator -> largest at head
+        boolean shouldEstimate = heap.size() < PRESELECT_CAP || (worst != null && lowerBound < worst.preScore);
+
+        if (!shouldEstimate) return;
+
+        // Build predicted pre-score with a very shallow factor and greedy split
+        PreCand pc = buildPreCandWithShape(m, cFloor, c2, residualBits, sieveM);
+
+        if (heap.size() < PRESELECT_CAP) {
+            heap.add(pc);
+        } else if (pc.preScore < heap.peek().preScore) {
+            heap.poll();
+            heap.add(pc);
+        }
+    }
+
+    private PreCand buildPreCandResidualOnly(BigInteger m, BigInteger cFloor, BigInteger c2) {
+        int residualBits = computeResidualBits(cFloor, c2);
+        return new PreCand(m, cFloor, c2, residualBits, residualBits * RESIDUAL_WEIGHT);
+    }
+
+    private int computeResidualBits(BigInteger cFloor, BigInteger c2) {
+        BigInteger c2Floor = cFloor.multiply(cFloor);
+        if (c2.equals(c2Floor)) return 0;
+
+        BigInteger rFloor = c2.subtract(c2Floor);
+        BigInteger cCeil  = cFloor.add(BigInteger.ONE);
+        BigInteger rCeil  = cCeil.multiply(cCeil).subtract(c2);
+        BigInteger rBest  = (rCeil.compareTo(rFloor) < 0) ? rCeil : rFloor;
+        return rBest.signum() == 0 ? 0 : rBest.bitLength();
+    }
+
+    private PreCand buildPreCandWithShape(BigInteger m, BigInteger cFloor, BigInteger c2,
+                                          int residualBits, long sieveM) {
+        // Choose better of floor/ceil c (no fresh sqrt)
+        BigInteger c, rBest;
+        BigInteger c2Floor = cFloor.multiply(cFloor);
+        if (c2.equals(c2Floor)) {
+            c = cFloor;
+            rBest = BigInteger.ZERO;
+        } else {
+            BigInteger rFloor = c2.subtract(c2Floor);
+            BigInteger cCeil  = cFloor.add(BigInteger.ONE);
+            BigInteger rCeil  = cCeil.multiply(cCeil).subtract(c2);
+            if (rCeil.compareTo(rFloor) < 0) {
+                c = cCeil;
+                rBest = rCeil;
+            } else {
+                c = cFloor;
+                rBest = rFloor;
+            }
+        }
+
+        // VERY shallow factoring for a shape estimate
+        List<BigInteger> factors = factorByPrimeDivisionBounded(m, PRE_TRIAL_DIV_LIMIT);
+        Split fst = greedySplitToFST(factors, sieveM);
+
+        Poly approx = new Poly(fst.f, fst.s, fst.t, c, residualBits);
+        approx.score(sieveM, portionBits);
+
+        // Use the same score as Stage 2 would (RMS + residual weight)
+        double preScore = approx.score;
+
+        return new PreCand(m, cFloor, c2, residualBits, preScore);
+    }
+
+    // ---------- Stage 2: finalize (full factor, greedy, exact scoring) ----------
+    private Poly finalizeOne(PreCand pc, long sieveM) {
+        // choose c again (same logic)
+        BigInteger cFloor = pc.cFloor;
+        BigInteger c2 = pc.c2;
+
+        BigInteger c, rBest;
+        BigInteger c2Floor = cFloor.multiply(cFloor);
+        if (c2.equals(c2Floor)) {
+            c = cFloor;
+            rBest = BigInteger.ZERO;
+        } else {
+            BigInteger rFloor = c2.subtract(c2Floor);
+            BigInteger cCeil  = cFloor.add(BigInteger.ONE);
+            BigInteger rCeil  = cCeil.multiply(cCeil).subtract(c2);
+            if (rCeil.compareTo(rFloor) < 0) { c = cCeil; rBest = rCeil; }
+            else { c = cFloor; rBest = rFloor; }
+        }
+        int residualBits = rBest.signum() == 0 ? 0 : rBest.bitLength();
+
+        // Full factor (up to 1e6), with early break when p*p > n
+        List<BigInteger> mFactors = factorByPrimeDivision(pc.m);
+
+        Split fst = greedySplitToFST(mFactors, sieveM);
+        Poly poly = new Poly(fst.f, fst.s, fst.t, c, residualBits);
+        poly.score(sieveM, portionBits);
+        return poly;
+    }
+
+    // ---------- Factoring ----------
+    private static List<BigInteger> factorByPrimeDivisionBounded(BigInteger m, int limit) {
         ArrayList<BigInteger> res = new ArrayList<>();
         BigInteger n = m;
 
@@ -55,128 +309,68 @@ public class FSTSearch extends Logger {
             n = n.shiftRight(twos);
             for (int i = 0; i < twos; i++) res.add(BigInteger.TWO);
         }
+        if (n.equals(BigInteger.ONE)) return res;
 
-        // Odd trial division
-        for (long d = 3; d <= limit; d += 2) {
-            BigInteger D = BigInteger.valueOf(d);
-            BigInteger D2 = D.multiply(D);
-            if (D2.compareTo(n) > 0) break;
-            while (n.mod(D).signum() == 0) {
-                res.add(D);
-                n = n.divide(D);
+        for (int i = 1; i < PRIMES.length; i++) { // start at prime 3
+            int pInt = PRIMES[i];
+            if (pInt > limit) break;
+            BigInteger p = PRIMES_BI[i];
+
+            // divide out p
+            while (true) {
+                BigInteger[] qr = n.divideAndRemainder(p);
+                if (qr[1].signum() == 0) {
+                    res.add(p);
+                    n = qr[0];
+                    if (n.equals(BigInteger.ONE)) break;
+                } else break;
             }
+
+            // Early break if remaining n is prime (p*p > n)
+            long p2 = (long) pInt * (long) pInt;
+            if (BigInteger.valueOf(p2).compareTo(n) > 0) break;
         }
 
         if (n.compareTo(BigInteger.ONE) > 0) res.add(n);
-        // Sort largest factors first to help greedy balancing
         res.sort(Comparator.comparingInt(BigInteger::bitLength).reversed());
         return res;
     }
 
-    public Poly findBestPolynomial(long sieveM) {
-        log("FSTSearch(k=5): start | Nbits", nBits, "| target portion", portionBits, "bits");
+    private static List<BigInteger> factorByPrimeDivision(BigInteger m) {
+        ArrayList<BigInteger> res = new ArrayList<>();
+        BigInteger n = m;
 
-        final long tend = System.currentTimeMillis() + SEARCH_TIME_MS;
-        final BigInteger sqrtN = SqrRoot.bigIntSqRootCeil(N);
-        final BigInteger m0 = sqrtN.shiftLeft(1); // ~ 2*sqrt(N)
+        int twos = n.getLowestSetBit();
+        if (twos > 0) {
+            n = n.shiftRight(twos);
+            for (int i = 0; i < twos; i++) res.add(BigInteger.TWO);
+        }
+        if (n.equals(BigInteger.ONE)) return res;
 
-        final ArrayList<Poly> bag = new ArrayList<>();
-        long checked = 0;
-        long lastLog = System.currentTimeMillis();
+        for (int i = 1; i < PRIMES.length; i++) { // start at prime 3
+            int pInt = PRIMES[i];
+            BigInteger p = PRIMES_BI[i];
 
-        for (long delta = 0; System.currentTimeMillis() < tend; delta++) {
-            // m = m0 + delta
-            if (System.currentTimeMillis() >= tend) break;
-            BigInteger mPlus = m0.add(BigInteger.valueOf(delta));
-            maybeRecordCandidate(mPlus, bag, sieveM);
-            checked++;
-
-            // m = m0 - delta (if positive)
-            if (delta > 0) {
-                if (System.currentTimeMillis() >= tend) break;
-                BigInteger mMinus = m0.subtract(BigInteger.valueOf(delta));
-                if (mMinus.signum() > 0) {
-                    maybeRecordCandidate(mMinus, bag, sieveM);
-                    checked++;
-                }
+            while (true) {
+                BigInteger[] qr = n.divideAndRemainder(p);
+                if (qr[1].signum() == 0) {
+                    res.add(p);
+                    n = qr[0];
+                    if (n.equals(BigInteger.ONE)) break;
+                } else break;
             }
 
-            long now = System.currentTimeMillis();
-            if (now - lastLog >= 1000) {
-                lastLog = now;
-                log("FSTSearch: checked~", checked, "m's | kept", bag.size(), "candidates");
-            }
+            // Early break if remaining n is prime (p*p > n)
+            long p2 = (long) pInt * (long) pInt;
+            if (BigInteger.valueOf(p2).compareTo(n) > 0) break;
         }
 
-        if (bag.isEmpty()) {
-            // This should basically never happen now (m0 gives a valid approx).
-            // As a super-safe fallback, manufacture a minimal candidate from m0.
-            log("FSTSearch: no candidates collected; manufacturing a fallback.");
-            BigInteger m = m0.max(BigInteger.ONE);
-            Poly fallback = buildApproxCandidate(m, sieveM);
-            return fallback;
-        }
-
-        bag.sort(Comparator.comparingDouble(p -> p.score));
-        Poly best = bag.get(0);
-        log("FSTSearch: best score", String.format("%.2f", best.score), "| fBits", best.f.bitLength(),
-                "sBits", best.s.bitLength(), "tBits", best.t.bitLength(),
-                "| cBits", best.c.bitLength(), "| linkResidualBits", best.linkResidualBits);
-        return best;
+        if (n.compareTo(BigInteger.ONE) > 0) res.add(n);
+        res.sort(Comparator.comparingInt(BigInteger::bitLength).reversed());
+        return res;
     }
 
-    private void maybeRecordCandidate(BigInteger m, ArrayList<Poly> bag, long sieveM) {
-        if (m.signum() <= 0) return;
-
-        // Prefer exact square if present; otherwise accept best rounded c with residual penalty.
-        BigInteger c2 = m.multiply(m).subtract(FOUR_N);
-        if (c2.signum() <= 0) return;
-
-        // Try exact first
-        BigInteger cExact = sqrtIfPerfect(c2);
-        if (cExact != null) {
-            Poly exact = buildCandidateWithC(m, cExact, 0, sieveM);
-            bag.add(exact);
-        } else {
-            // Approximate: choose the better of floor/ceil roots and penalize by residual bits.
-            Poly approx = buildApproxCandidate(m, sieveM);
-            bag.add(approx);
-        }
-
-        if (bag.size() > MAX_CANDIDATES * 2) {
-            bag.sort(Comparator.comparingDouble(p -> p.score));
-            while (bag.size() > MAX_CANDIDATES) bag.remove(bag.size() - 1);
-        }
-    }
-
-    private Poly buildApproxCandidate(BigInteger m, long sieveM) {
-        BigInteger c2 = m.multiply(m).subtract(FOUR_N);
-        BigInteger cFloor = SqrRoot.bigIntSqRootFloor(c2);
-        BigInteger rFloor = c2.subtract(cFloor.multiply(cFloor)); // >= 0
-        BigInteger cBest = cFloor;
-        BigInteger rBest = rFloor;
-
-        if (!rFloor.equals(BigInteger.ZERO)) {
-            BigInteger cCeil = cFloor.add(BigInteger.ONE);
-            BigInteger rCeil = cCeil.multiply(cCeil).subtract(c2); // >= 0
-            if (rCeil.compareTo(rFloor) < 0) {
-                cBest = cCeil;
-                rBest = rCeil;
-            }
-        }
-
-        int residualBits = rBest.equals(BigInteger.ZERO) ? 0 : rBest.bitLength();
-        return buildCandidateWithC(m, cBest, residualBits, sieveM);
-    }
-
-    private Poly buildCandidateWithC(BigInteger m, BigInteger c, int linkResidualBits, long sieveM) {
-        List<BigInteger> mFactors = factorByTrialDivision(m, TRIAL_DIV_LIMIT);
-        Split fst = greedySplitToFST(mFactors, sieveM);
-        Poly poly = new Poly(fst.f, fst.s, fst.t, c, linkResidualBits);
-        poly.score(sieveM, portionBits);
-        return poly;
-    }
-
+    // ---------- Greedy F/S/T ----------
     private Split greedySplitToFST(List<BigInteger> factors, long sieveM) {
         BigInteger f = BigInteger.ONE, s = BigInteger.ONE, t = BigInteger.ONE;
         if (factors.isEmpty()) return new Split(f, s, t);
@@ -186,21 +380,13 @@ public class FSTSearch extends Logger {
             int bestBin = -1;
 
             double scoreF = scorePreview(f.multiply(g), s, t, sieveM);
-            if (scoreF < bestScore) {
-                bestScore = scoreF;
-                bestBin = 0;
-            }
+            if (scoreF < bestScore) { bestScore = scoreF; bestBin = 0; }
 
             double scoreS = scorePreview(f, s.multiply(g), t, sieveM);
-            if (scoreS < bestScore) {
-                bestScore = scoreS;
-                bestBin = 1;
-            }
+            if (scoreS < bestScore) { bestScore = scoreS; bestBin = 1; }
 
             double scoreT = scorePreview(f, s, t.multiply(g), sieveM);
-            if (scoreT < bestScore) {
-                bestBin = 2;
-            }
+            if (scoreT < bestScore) { bestBin = 2; }
 
             if (bestBin == 0) f = f.multiply(g);
             else if (bestBin == 1) s = s.multiply(g);
@@ -215,10 +401,33 @@ public class FSTSearch extends Logger {
         return tmp.score;
     }
 
-    private record Split(BigInteger f, BigInteger s, BigInteger t) {
+    private record Split(BigInteger f, BigInteger s, BigInteger t) {}
+
+    // ---------- Incremental sqrt adjusters ----------
+    private static BigInteger adjustSqrtFloorUp(BigInteger c, BigInteger c2) {
+        BigInteger c1 = c.add(BigInteger.ONE);
+        if (c1.multiply(c1).compareTo(c2) <= 0) {
+            BigInteger c2p = c1.add(BigInteger.ONE);
+            if (c2p.multiply(c2p).compareTo(c2) <= 0) return c2p;
+            return c1;
+        }
+        if (c.multiply(c).compareTo(c2) > 0) return c.subtract(BigInteger.ONE);
+        return c;
     }
 
-    // ----- Result -----
+    private static BigInteger adjustSqrtFloorDown(BigInteger c, BigInteger c2) {
+        if (c.multiply(c).compareTo(c2) > 0) {
+            BigInteger cm1 = c.subtract(BigInteger.ONE);
+            if (cm1.signum() < 0) return BigInteger.ZERO;
+            if (cm1.multiply(cm1).compareTo(c2) > 0) return cm1.subtract(BigInteger.ONE).max(BigInteger.ZERO);
+            return cm1;
+        }
+        BigInteger c1 = c.add(BigInteger.ONE);
+        if (c1.multiply(c1).compareTo(c2) <= 0) return c1;
+        return c;
+    }
+
+    // ---------- Result type ----------
     public static class Poly {
         public final BigInteger f, s, t, c;
         public final int linkResidualBits; // 0 for exact; >0 for approximate
@@ -232,16 +441,14 @@ public class FSTSearch extends Logger {
             this.linkResidualBits = linkResidualBits;
         }
 
-        private static double sq(double x) {
-            return x * x;
-        }
+        private static double sq(double x) { return x * x; }
 
         /**
-         * Score the five portions for k=5:
+         * Score k=5 portions:
          * L1 = |s*M - t|,  L2 = |s*M + t|,
          * L3 = |f*s*s*M - c|,  L4 = |f*s*s*M + c|,
          * const = (f*s)^2.
-         * We minimize RMS error vs 'targetBits', plus a small penalty for linkResidualBits.
+         * Minimize RMS to targetBits + link residual penalty.
          */
         public void score(long M, int targetBits) {
             if (M <= 0) M = 1;
@@ -261,8 +468,6 @@ public class FSTSearch extends Logger {
                             sq(l4 - targetBits) +
                             sq(cons - targetBits)) / 5.0
             );
-
-            // Penalize deviation from exact N-link; exact hits (0 bits) win.
             this.score = rms + linkResidualBits * RESIDUAL_WEIGHT;
         }
 
