@@ -32,7 +32,9 @@ public class BigPrimesList {
 
     public ArrayList<LinkedList<VectorData>> getBigPrimes() {
         ArrayList<LinkedList<VectorData>> primeList = new ArrayList<>();
-        for (LinkedList<VectorData> prime : primes) {
+        int size = primes.size();
+        for (int i = size - 1; i >= 0; i--) {
+            LinkedList<VectorData> prime = primes.get(i);
             if (prime.size() > 1) {
                 primeList.add(prime);
             }
