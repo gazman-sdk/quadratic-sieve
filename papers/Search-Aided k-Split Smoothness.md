@@ -1,6 +1,6 @@
-# Search-Aided *k*-Split Smoothness for QS-Style Factoring
+# Search-Aided *k*-Split Smoothness for QS-Style Factoring (v2)
 
-*A practical–mathematical framework and constructions up to k=5*
+*A practical–mathematical framework, constructions up to k=5, and slope/sensitivity heuristics*
 
 **Author:** Ilya Gazman (with editorial assistance)
 
@@ -8,313 +8,283 @@
 
 ## Abstract
 
-We present a practical framework that blends (i) classic Quadratic Sieve (QS) / Self-Initializing QS (SIQS) mechanics, (ii) algebraic *k*-way factorizations of the trial value to raise smoothness odds, and (iii) a targeted **search** phase that pre-pays a large portion of the logarithmic mass by enforcing many small prime factors **before** sieving. We formalize two levers:
+We refine a framework that blends (i) classic Quadratic Sieve (QS) / Self-Initializing QS (SIQS), (ii) algebraic *k*-way factorizations to raise smoothness odds, and (iii) a targeted **search** phase that pre-pays log-mass by forcing many small prime factors **before** sieving. Two levers remain central:
 
 1. **Pre-credit**: enforce a product of small prime powers dividing the trial value so the **remainder** is much smaller than a typical QS value; and
-2. **k-split**: split the remainder into *k* comparable pieces so the success probability scales like
+2. **k-split**: split the post-credit remainder into *k* comparable pieces so the success probability scales like
    [
-   p_k(C)\ \approx\ \Big[\rho!\Big(\frac{R_{\text{bits}}}{k,B_{\text{bits}}}\Big)\Big]^k
+   p_k(C)\ \approx\ \Big[\rho!\Big(\frac{R_{\text{bits}}}{k,B_{\text{bits}}}\Big)\Big]^k,
    ]
-   with (\rho) the Dickman–de Bruijn function, (R_{\text{bits}}) the post-credit remainder in bits, and (B_{\text{bits}}=\log_2 B) the factor-base bound in bits.
+   with (\rho) the Dickman–de Bruijn function, (R_{\text{bits}}) the post-credit remainder in bits, and (B_{\text{bits}}=\log_2 B).
 
-We quantify the complementary **search cost** via a density bound: solutions to a quadratic congruence modulo (P) have density (\lesssim 2^{\omega(P)}/P), yielding an exponential trade-off in the credited bits. We show why a **middle ground** (moderate pre-credit; small (k=2\text{–}5)) can deliver large constant-factor speedups at practical sizes (e.g., 1024-bit composites) while keeping the “admissible-x” density tractable. We give algebraic constructions that preserve the essential **square-congruence modulo (N)** (the “N-link”), including an upgraded (k=5) form with four linear factors and a squareful global constant tuned for sieving. We outline a complete implementation plan and a measurement-driven tuning methodology.
-
-Asymptotically, the method remains in (L_N[1/2,\cdot]) (QS class): it improves the leading constant—often dramatically at realistic sizes—without changing the (1/2) exponent.
+This revision adds a **search simplification**: couple (A) and (x) to a **single per-portion size target** (T\approx |N|/5) via
+[
+\log_2 A+\log_2 x\ \approx\ T,\qquad B\equiv\text{canonical mod }A\text{ near }0,
+]
+so that (|Ax\pm B|) sit near the same (T)-bit band without preset gymnastics. We also add **back-of-the-paper slope heuristics** (in bits) showing how sensitive success is to portion size in three regimes (180, 300, 1024 bits) and compare to QS with a single form. As before, the method improves the leading constant in (L_N[1/2,\cdot]) without changing the exponent.
 
 ---
 
 ## 1. Background and Motivation
 
-Let (N) be a large composite. QS/SIQS evaluates values of the form
+Let (N) be large composite. QS/SIQS evaluates values near
 [
-Q(x)\approx (x+\lfloor\sqrt N\rfloor)^2-N
+Q(x)\approx (x+\lfloor\sqrt N\rfloor)^2-N,
 ]
-whose magnitude (|Q|) is (\approx N^{1/2}) for QS (smaller for SIQS polynomials). The goal is to find **relations** where (Q(x)) is (B)-smooth (all prime factors (\le B)). The success probability for a random (|Q|)-sized integer is (\rho(u)) with (u=\ln|Q|/\ln B) (Dickman–de Bruijn). Efficiency balances sieving effort and matrix cost (about (\pi(B)) columns) by tuning (B).
+seeking (B)-smooth outputs. With factor-base bound (B), the success probability for a magnitude (|Q|) is (\rho(u)) with (u=\ln|Q|/\ln B).
 
-**Idea.** If we (a) **pre-pay** log mass by enforcing small prime factors so only a small **remainder** must be (B)-smooth, and (b) **split** that remainder into (k) comparable pieces, we can drastically raise per-trial success and thus reduce (B) (shrinking the matrix) and/or reduce trial division.
+**Idea.** (a) **Pre-pay** log-mass by enforcing small prime factors so only a small **remainder** must be (B)-smooth; (b) **split** that remainder into (k) comparable pieces to magnify success.
 
 ---
 
 ## 2. Notation
 
-* (N): composite to factor; (|N|=) bit-length of (N).
+* (N): composite; (|N|=n) bits.
 * (B): factor-base bound; (B_{\text{bits}}=\log_2 B).
-* (|Q|): typical magnitude of trial values; (|Q|_{\text{bits}}=\log_2|Q|).
-* **Pre-credit** (C_{\text{bits}}=\log_2 P): we enforce (P\mid Q(x)) via CRT/Hensel constraints.
+* **Pre-credit** (C_{\text{bits}}=\log_2 P): enforced product (P\mid Q(x)).
 * **Remainder** (R_{\text{bits}}=|Q|*{\text{bits}}-C*{\text{bits}}).
-* **k-split**: split the post-credit remainder into (k) comparable pieces (heuristically independent).
+* **k-split**: split the remainder into (k) comparable pieces.
 
 ---
 
 ## 3. Success Probability with *k*-Split and Pre-Credit
 
-After pre-credit (C_{\text{bits}}), the remainder magnitude is (2^{R_{\text{bits}}}). Splitting it into (k) comparable pieces yields the heuristic success probability
+After pre-credit, remainder size (S=2^{R_{\text{bits}}}). Splitting into (k) comparable pieces gives the heuristic
 [
 \boxed{ \quad p_k(C)\ \approx\ \Big[\rho!\Big(\frac{R_{\text{bits}}}{k,B_{\text{bits}}}\Big)\Big]^k \quad } \tag{1}
 ]
-Two immediate consequences:
+**Guarantee threshold.** If (R_{\text{bits}}\le k,B_{\text{bits}}), then (p_k=1) (per-piece parameter (\le 1)).
+**Large-prime variants.** Allowing 1-LP/2-LP adds a constant-factor gain atop (1).
 
-* **Guarantee threshold.** If (R_{\text{bits}}\le k,B_{\text{bits}}), then each piece has Dickman parameter (\le 1), so (\rho=1\Rightarrow p_k=1).
+### 3.1 Local slopes and finite-difference sensitivity (bits)
 
-* **Relative boost.** For fixed (R_{\text{bits}}), increasing (k) multiplies success roughly by (k^{,R_{\text{bits}}/B_{\text{bits}}}) (because (\ln \rho(u)\sim -u\ln u)); this saturates at (p_k\le 1).
-
-**Large-prime variants.** Allowing one or two “large primes” under (z) (semismoothness) adds a sizable constant-factor gain atop (1). In practice, 1-LP/2-LP should be enabled.
+Write success as (p=2^{-E}) (so (E=-\log_2 p) are “bits of surprise”). For *k*-split with per-piece size (b) bits:
+[
+E_k(b)= -k,\log_2 \rho!\Big(\frac{b}{B_{\text{bits}}}\Big).
+]
+Define the **local slope** (bits per extra bit of (b)):
+[
+s_k(b)\ :=\ \frac{\mathrm{d}E_k}{\mathrm{d}b}.
+]
+In practice we use **finite-difference** sensitivities over (\pm\Delta b) (e.g., (\Delta b=10) bits):
+[
+\Delta E_{\pm}\ \approx\ E_k(b\pm\Delta b)-E_k(b).
+]
+Heuristically, slopes **add** across independent pieces (multiplication of probabilities): keeping the four linears **balanced** minimizes the “worst-piece dominates” effect.
 
 ---
 
 ## 4. Cost of the Search (Density Bound)
 
-To pre-pay (C_{\text{bits}}) we enforce congruences
-[
-Q(x)\equiv 0\pmod{p_i^{e_i}},\quad P=\prod p_i^{e_i}\approx 2^{C_{\text{bits}}}.
-]
-For a **quadratic** (Q), Hensel lifting yields at most 2 solutions per prime power; via CRT, solutions modulo (P) lie in at most (2^{\omega(P)}\le 2^{t}) residue classes, where (t) is the number of distinct primes used.
+To pre-pay (C_{\text{bits}}) we enforce roots modulo (p_i^{e_i}) so (P=\prod p_i^{e_i}\approx 2^{C_{\text{bits}}}). For quadratic (Q), each (p^e) contributes at most 2 lifts; CRT packs solutions into at most (2^{\omega(P)}) residue classes.
 
 **Density lemma.**
 [
-\boxed{\quad \text{density of admissible }x\ \lesssim\ \dfrac{2^{t}}{P}\ =\ 2^{,t-C_{\text{bits}}},\quad \text{so gap}\ \gtrsim\ 2^{,C_{\text{bits}}-t}. \quad} \tag{2}
+\boxed{\ \text{admissible-}x\text{ density}\ \lesssim\ \frac{2^{t}}{P}=2^{,t-C_{\text{bits}}}\quad\Rightarrow\quad \text{gap}\ \gtrsim\ 2^{,C_{\text{bits}}-t}.\ } \tag{2}
 ]
-
-Thus, while larger (C_{\text{bits}}) makes sieving easy (via (1)), it makes admissible (x) exponentially sparse in **one dimension** unless (t) grows apace. Using many small primes maximizes (t) per credited bit but does not remove the exponential dependence on (C_{\text{bits}}).
-
-**Takeaway.** There is a **middle ground** where (C_{\text{bits}}) is large enough that (1) is high (often near-guaranteed for small (k)), yet (2) remains tractable when combined with QS-style prefilters and sieving.
+Using many small primes maximizes (t) per credited bit. The one-dimensional exponential dependence in (C_{\text{bits}}) is the fundamental wall.
 
 ---
 
 ## 5. Asymptotics vs Practice
 
-With optimally tuned (B), QS/SIQS has runtime
+Optimally tuned QS/SIQS has
 [
-T(N)=L_N!\Big[,\tfrac12,\ C,\Big]=\exp!\big((C+o(1))\sqrt{\ln N,\ln\ln N}\big).
+T(N)=L_N\big[\tfrac12,C\big].
 ]
-Our method multiplies per-trial success by factors like (k^{,R_{\text{bits}}/B_{\text{bits}}}) plus semismooth bonuses. This reduces the **constant** (C) (often dramatically at realistic sizes) without changing the (1/2) exponent. This matches experience with MPQS/SIQS/special-(q)/large-prime variants: large constants, same (L_{1/2}) class.
+*k*-split + pre-credit reduces the constant (C) (often dramatically at practical sizes) without changing the (1/2) exponent.
 
 ---
 
 ## 6. Algebraic Constructions that Preserve the N-Link
 
-The **N-link** is the invariant that the constructed product is congruent to a **square modulo (N)** up to the small factors we aim to be smooth. The canonical (k=3) identity we build from is:
+The **N-link**: constructed product is a square modulo (N) up to small factors. A canonical ((k=3)) identity:
 
-> If (c^2=f^2 d b-2N), then
-> [
-> Q_3(x)=f^2 d,(b+d x^2),(fdx-c),(fdx+c),
-> ]
-> and ((fdx)^2-c^2\equiv (fdx)^2-(f^2db-2N)\equiv f^2 d(b+d x^2)\pmod N), so the product equals a square (times small factors) modulo (N).
+If (c^2=f^2 d b-2N), then
+[
+Q_3(x)=f^2 d,(b+d x^2),(fdx-c),(fdx+c),
+]
+and ((fdx)^2-c^2\equiv f^2 d(b+d x^2)\pmod N).
 
-### 6.1 Upgrading (k=3) to a sieve-friendly “(k=5)”: four linear factors + squareful constant
+### 6.1 Upgrading to sieve-friendly “(k=5)”: four linears + squareful constant
 
-We improve sieving by **linearizing** the quadratic while keeping the same N-link.
-
-Pick integers (s,t,f) and set (d=s^2,\ b=t^2). Solve the Pell-type constraint
+Pick (d=s^2,\ b=t^2) and solve
 [
 \boxed{ \ c^2\ =\ f^2 s^2 t^2\ -\ 2N\ .\ } \tag{★}
 ]
-Then
+Then (t^2+s^2 x^2=(s x-t)(s x+t)) and
 [
-b+d x^2 = t^2+s^2 x^2 = (s x-t)(s x+t),
-]
-and we obtain the k=5 form
-[
-\boxed{\quad Q_5(x)\ =\ f^2 s^2\ \underbrace{(s x-t)}*{L_1}\ \underbrace{(s x+t)}*{L_2}\ \underbrace{(f s^2 x-c)}*{L_3}\ \underbrace{(f s^2 x+c)}*{L_4}\ . \quad} \tag{3}
+\boxed{\quad Q_5(x)\ =\ f^2 s^2\ \underbrace{(s x-t)}*{L_1}\ \underbrace{(s x+t)}*{L_2}\ \underbrace{(f s^2 x-c)}*{L_3}\ \underbrace{(f s^2 x+c)}*{L_4}\ .\quad} \tag{3}
 ]
 All moving factors are **linear**; (f^2 s^2) is a global **square** (parity-silent, log-useful).
 
-* **N-link:** (★) ensures the same cancellation of (-2N) modulo (N); multiplying by a global square preserves square-congruence.
-* **Roots mod (p):** each linear contributes a single residue class (after lifting), ideal for bucket sieving.
+---
 
-### 6.2 Symmetric “two DoS + one linearized quadratic” (optional)
+## 7. Bit Budgeting, Targeting, and the (|N|/5) Goal
 
-Pick ((a_i,b_i,c_i)) with
+The (k=5) linearized form (3) naturally splits the log-mass into **five portions**:
+
+1. the **squareful constant** (f^2 s^2) (parity-silent);
+   2–5) the **four linear factors** ((L_1,\dots,L_4)).
+
+**Best-case objective.** **Equipartition** toward
 [
-c_i^2=a_i b_i-2N\quad (i=1,2),
+\boxed{\ \textbf{Target }T:\quad \log_2|L_i|\ \approx\ \frac{|N|}{5}\ \text{bits},\quad \log_2(f^2 s^2)\ \approx\ \frac{|N|}{5}\ .\ }
 ]
-and pick (s,t) with (t^2+s^2x^2=(sx-t)(sx+t)). Then
+**Practical band:** (|N|/6\ \lesssim\ \text{portion bits}\ \lesssim\ |N|/4) (aspire to (|N|/5)).
+
+### 7.1 A simpler, search-first way to hit the target (no presets)
+
+For SIQS-style (|Ax\pm B|), **couple** (A) and (x) to the single target (T):
 [
-Q(x)=(a_1x-c_1)(a_1x+c_1)(a_2x-c_2)(a_2x+c_2)(sx-t)(sx+t)\times K,
+\boxed{\ \log_2 A+\log_2 x\ \approx\ T\quad\Longleftrightarrow\quad x^\star=\operatorname{round}!\Big(\frac{2^{T}}{A}\Big). \ }
 ]
-with (K) squareful (e.g., a square). This yields 6 linears (or group the last pair as one “piece”). Both DoS blocks share the same N-link; the linearized quadratic provides extra factors without breaking the congruence.
+Pick (x^\star) (clipped to your sieve window) **deterministically** from (A).
+
+Take (B) as the **canonical representative mod (A)**:
+[
+\boxed{\ B_{\text{can}}\in(-A/2,,A/2],\ \ B_{\text{can}}\equiv r\pmod A\ }.
+]
+With (x\approx x^\star), both (|Ax\pm B_{\text{can}}|) sit near (2^{T}) (balanced linears). This replaces preset juggling with one clear constraint.
+
+**Richness bias.** For fixed (\log_2 A), maximize (t=\omega(A)) (many small primes with ((N|p)=+1)); this matches the density term (2^{t-C_{\text{bits}}}) in (2).
 
 ---
 
-## 7. Bit Budgeting and the “|N|/5 per portion” Target
+## 8. Back-of-the-Paper Slopes (bits) and Sensitivity
 
-Our (k=5) linearized construction ((3)) naturally splits the trial’s log-mass into **five portions**:
+To visualize manageability, fix (B) at (2^{20}) so (B_{\text{bits}}=20). Compare:
 
-1. the **squareful constant** (f^2 s^2) (parity-silent but log-useful), and
-   2–5) the **four linear factors** (L_1,L_2,L_3,L_4).
+* **QS (single form):** one piece (b=n/2) bits (\Rightarrow) (p_{\text{QS}}=2^{-E_{\text{QS}}}).
+* **(k=5):** four moving linears each (b=n/5) bits (squareful constant is slope-silent) (\Rightarrow) (p_{k=5}=2^{-E_{k=5}}).
 
-**Best-case design objective.** Aim to **equipartition** the total log-mass across these five portions:
-[
-\boxed{\ \textbf{Target:}\quad \log_2|L_i|\ \approx\ \frac{|N|}{5}\ \text{bits for each moving factor},\qquad
-\log_2(f^2 s^2)\ \approx\ \frac{|N|}{5}\ \text{bits}\ .\ }
-]
-Equipartition minimizes the largest piece that must be (B)-smooth, which (by Dickman’s law) maximizes success after pre-credit/splitting. Perfect equipartition is **hard** (since (x) varies and (★) ties parameters), but it is the **correct aspiration**.
+Below are **heuristic** (E) and **finite-difference** changes (\Delta E) when each moving piece shifts by (\pm 10) bits (all pieces move together). All values are in **bits** (so success scales like (2^{-\text{bits}})). These are coarse Dickman-based back-of-envelope numbers intended for slope intuition, not for tuning:
 
-### 7.1 Reconciling with the Pell-type constraint
+### (n=180) bits
 
-From (★):
-[
-\log_2 f+\log_2 s+\log_2 t ;\approx; \tfrac12 |N|.
-]
-If you only balanced parameters you’d pick (\log_2 f\approx \log_2 s\approx \log_2 t\approx |N|/6).
+* **QS:** (b=90). (E_{\text{QS}}\approx 9.5). A +10-bit drift costs (\Delta E\approx+1.9); −10 bits gains (\approx-1.8).
+* **(k=5):** per piece (b=36). (E_{k=5}\approx 6.4). +10 bits (\Rightarrow\ \Delta E\approx+5.8); −10 bits (\Rightarrow\ \Delta E\approx-4.2).
 
-In the (k=5) linearized form, the *moving* magnitudes are governed by
-[
-|L_1|\sim |s x - t|,\quad |L_2|\sim |s x + t|,\quad |L_3|\sim |f s^2 x - c|,\quad |L_4|\sim |f s^2 x + c|.
-]
-Thus **(x)** acts as a fifth dial. By **centering the sieve window** appropriately, you can push typical sizes of the four linear factors toward the shared (|N|/5)-bit target even if (\log_2 f,\log_2 s,\log_2 t) each hover near (|N|/6).
+**Take:** (k=5) is **steeper** than QS but still very manageable in this size; staying within ±5 bits keeps you within (\approx 2^{\pm 3}).
 
-> **Practical band:**
-> [
-> \boxed{\quad \frac{|N|}{6}\ \lesssim\ \text{portion bits}\ \lesssim\ \frac{|N|}{4}\quad\text{(aspire to }|N|/5\text{)}. \quad}
-> ]
-> For 1024-bit (N): aim each portion at ~170–256 bits, with **~205 bits** best-case.
+### (n=300) bits
 
-### 7.2 Why this bit target matters for smoothness
+* **QS:** (b=150). (E_{\text{QS}}\approx 19.1). +10 bits (\Delta E\approx+0.3); −10 bits (\approx-0.3).
+* **(k=5):** per piece (b=60). (E_{k=5}\approx 21.8). +10 bits (\Rightarrow\ \Delta E\approx+7.9); −10 bits (\Rightarrow\ \Delta E\approx-7.1).
 
-If the k-split moves each remainder piece into ([B_{\text{bits}},,2B_{\text{bits}}]) after pre-credit, then (R_{\text{bits}}/(k B_{\text{bits}})) is near 1–2 and (\rho(\cdot)) is large (even 1 when (\le 1)). Hence small (k) (2–5) yields very high (often guaranteed) (B)-smoothness per trial at realistic (B).
+**Take:** at this (B), QS is **gentler** (flatter) and slightly ahead on raw success; (k=5) is usable but **centering quality matters** (±10 bits swings success by about (2^{\pm 8})).
+
+### (n=1024) bits
+
+* **QS:** (b=512). (E_{\text{QS}}\approx 128.3). +10 bits (\Delta E\approx+3.5); −10 bits (\approx-3.5).
+* **(k=5):** per piece (b\approx 205). (E_{k=5}\approx 155.4). +10 bits (\Rightarrow\ \Delta E\approx+13.6); −10 bits (\Rightarrow\ \Delta E\approx-56.8).
+
+**Take:** both are very rare per trial at this (B). The (k=5) curve is **highly convex**: nudging portions **smaller** than (n/5) pays off massively; drifting larger hurts sharply. This matches the (|N|/5) discipline: keep all moving linears clustered **at or slightly below** (n/5) to stay on the good side of the curve. In a real solver, increasing (B) flattens these slopes (at matrix cost).
 
 ---
 
-## 8. Practical Tuning (1024-bit Illustrative Numbers)
+## 9. Two-Face Cost Model (unchanged core, clearer proxy)
 
-Assume SIQS-style polynomials with (|Q|*{\text{bits}}\approx 341). Take (B*{\text{bits}}=20).
-
-* **Target remainder band.** (R_{\text{bits}}\in[60,120]).
-  • At (R=60), (k=3\Rightarrow R/(kB)=1) ⇒ guaranteed.
-  • At (R=40), (k=2\Rightarrow R/(kB)=1) ⇒ guaranteed.
-  • At (R=90), (k=3\Rightarrow R/(kB)=1.5) ⇒ (p_k\approx 0.595^3\approx 0.21) (very high).
-
-* **Parameterization for (3).** Choose (s,t,f) as products of base primes with (\left(\frac{2N}{p}\right)=+1), target (\log_2(f^2 s^2)\approx |N|/5) (≈205 bits), and center the sieve window (x_0) so (|sx_0|\approx |t|) and (|f s^2 x_0|\approx |c|).
-
-* **Factor-base size.** The boosted per-trial success lets you **lower (B)** (shrinking (\pi(B)) and the matrix) while keeping throughput high.
-
----
-
-## 9. Two-Face Cost Model
-
-Let (\pi(B)) be the factor-base size; you need (R\approx \pi(B)) independent relations.
+Let (\pi(B)) be the factor-base size; need (\pi(B))+margin relations.
 
 * **Sieving face.** With k-split and pre-credit,
   [
   \text{sieving time}\ \approx\ \frac{\pi(B)}{p_k(C)}\cdot \text{cost per tested index},
   ]
-  and “cost per tested index” grows roughly with (B) (logs-only for tiny primes; buckets for larger).
+  and “cost per tested index” grows roughly with (B).
 
-* **Search face.** Enforcing (C_{\text{bits}}) with (t) distinct primes yields admissible (x) density (\lesssim 2^{t-C_{\text{bits}}}) (Sec. 4). The expected work to *find* such (x) scales like (2^{C_{\text{bits}}-t}).
+* **Search face.** Enforcing (C_{\text{bits}}) with (t) distinct primes yields admissible-(x) density (\lesssim 2^{t-C_{\text{bits}}}) (Sec. 4). Work to *find* admissible (x) scales like (2^{,C_{\text{bits}}-t}).
 
 **Throughput proxy (to maximize):**
 [
 \boxed{\quad \text{yield}(k,B,C)\ \approx\ \frac{p_k(C)}{2^{,C_{\text{bits}}-t(C)}}\ .\quad} \tag{4}
 ]
-Increase (C_{\text{bits}}) until (p_k(C)) is high (ideally near the guarantee threshold) but not so high that (2^{C_{\text{bits}}-t(C)}) explodes. This “middle ground” is the sweet spot.
+Increase (C_{\text{bits}}) until (p_k(C)) is high (ideally near the guarantee threshold) but not so high that (2^{C_{\text{bits}}-t(C)}) explodes.
 
 ---
 
 ## 10. Implementation Blueprint (math-driven, code-agnostic)
 
-1. **Global knobs.** Choose block size to fit cache (e.g., 32–64 Ki indices). Pick (B_{\text{bits}}\in[18,22]). Select (k\in{2,3,4,5}). Set a target remainder band (R_{\text{bits}}\in[60,120]).
+1. **Global knobs.** Choose block size to fit cache. Pick (B_{\text{bits}}\in[18,22]). Select (k\in{2,3,4,5}). Set a target remainder band (R_{\text{bits}}\in[60,120]).
 
-2. **Pre-credit tables.**
-   • Deterministic wheel for tiny primes: exact periodic log credit.
-   • 2–3 “log-sketch” tables for the next bands using small moduli (M_j) (Bloom-like aggregation of logs at roots); calibrate bias once.
+2. **Pre-credit tables.** Deterministic wheel for tiny primes; a couple of “log-sketch” tables using small moduli for mid-primes; calibrate once.
 
-3. **Search constraints (controlled).** Maintain a rolling set of enforced small prime powers (p_i^{e_i}) with product (P\approx 2^{C_{\text{bits}}}), maximizing (t(C)) per credited bit (prefer many small primes). Use CRT/Hensel to mark admissible residue classes. Track the density penalty (2^{C_{\text{bits}}-t(C)}).
+3. **Search constraints (controlled).** Maintain enforced small prime powers (p_i^{e_i}) with product (P\approx 2^{C_{\text{bits}}}), maximizing (t(C)) per credited bit (favor many small primes). Track density (2^{,C_{\text{bits}}-t}).
 
-4. **k-aware scoring.** For each index (x) in the block:
-   • If (x) is not in enforced classes, down-weight or skip.
-   • Estimate (C_{\text{bits}}) from prefilters; set (R=|Q|_{\text{bits}}-C).
-   • Compute a success score via (1) (or a monotone surrogate like (k^{-R/B})); shortlist only top-K indices or those with (R) in the band.
+4. **k-aware scoring (simplified).** For each (A) (squarefree, ((N|p)=+1) primes):
 
-5. **Trial division & large-prime handling.** Perform TD only on shortlisted indices; allow 1-LP/2-LP; merge pairs/tuples aggressively (low-contention structures).
+    * **Couple to target**: set (x^\star=\operatorname{round}(2^T/A)) (clip to window).
+    * **Canonical (B)**: use representative (B_{\text{can}}\in(-A/2,A/2]).
+    * **Evaluate once**: (\ell_\pm=\log_2|Ax^\star\pm B_{\text{can}}|).
+    * **Score**: (\text{size_err}=\max{|\ell_+-T|,|\ell_--T|})
+      plus a richness term (\lambda(\tau-\omega(A))_+).
+    * Keep top-(K) (A)’s. Two sign patterns (\pm B_{\text{can}}) suffice for decorrelation.
 
-6. **Linear algebra.** Collect (\pi(B)+)margin relations; solve via Block-Lanczos/Wiedemann over (\mathbb F_2) (packed rows). Reducing (B) pays off quadratically.
+5. **Trial division & large-prime handling.** TD only on shortlisted indices; enable 1-LP/2-LP; merge aggressively.
 
-7. **Tune by measurement.** Sweep ((k,B,C)); measure relations/sec after LP merging, total time to (\pi(B)+)margin, and matrix time. Choose ((k,B,C)) that equalizes sieving and matrix cost and maximizes (4).
+6. **Linear algebra.** Collect (\pi(B))+margin relations; solve via Block-Lanczos/Wiedemann over (\mathbb{F}_2). Lowering (B) shrinks the matrix.
+
+7. **Tune by measurement.** Sweep ((k,B,C)); record relations/sec (with LP merging), total to (\pi(B))+margin, matrix time. Choose Pareto-optimal settings maximizing (4). Use **finite-difference** logs of (\Delta E) over ±5–10 bits to keep portions in the sweet band.
 
 ---
 
-## 11. Limitations and Why the Exponent Stays
+## 11. Limitations
 
-* The one-dimensional **density wall** (2) is fundamental: admissible (x) become exponentially sparse in the credited bits unless you reintroduce wide sieving. This confines (k) to modest values for single-variable constructions.
-
-* Even large per-trial boosts change the **constant** in (L_{1/2}), not the exponent. To change the exponent you need multi-norm geometry (e.g., two-dimensional lattice sieving in GNFS).
+* **1-D density wall** (Sec. 4) confines (k) to modest values for single-variable constructions.
+* Large per-trial boosts change the **constant** in (L_{1/2}), not the exponent. Exponent changes require higher-dimensional geometry (e.g., GNFS).
 
 ---
 
 ## 12. Suggested Experimental Protocol
 
-1. Fix (N) (e.g., 1024 bits); choose SIQS polynomials.
-2. Sweep (B_{\text{bits}}\in{18,20,22}), (k\in{1,2,3,4,5}), and (C_{\text{bits}}) targets (\in{220,250,280,300}).
+1. Fix (N) (e.g., 180, 300, 1024 bits); choose SIQS polynomials.
+2. Sweep (B_{\text{bits}}\in{18,20,22}), (k\in{1,2,3,4,5}), (C_{\text{bits}}\in{220,250,280,300}) for large (n).
 3. Record:
 
-    * Distribution of estimated (R_{\text{bits}}) on shortlisted indices;
-    * Measured (p_k) (relations per shortlist; with/without 1-LP);
-    * Admissible-(x) density vs (2^{t-C});
-    * Relations/sec to (\pi(B)+)margin;
-    * Matrix time and total wall-clock.
-4. Choose Pareto-optimal settings (fastest total, smallest matrix, stable).
+    * Distribution of portion sizes (\log_2|L_i|) on shortlisted indices;
+    * Empirical (E=-\log_2 p) and **(\Delta E) for (\pm 5, \pm 10) bits**;
+    * Admissible-(x) density vs (2^{,t-C});
+    * Relations/sec to (\pi(B))+margin; matrix time and total.
+4. Select settings that equalize sieving and matrix cost and keep (\Delta E) slopes tame within the targeting band.
 
 ---
 
 ## 13. Conclusion
 
-We formalized a practical approach that combines **targeted pre-credit** and **small-(k) splitting** to substantially increase per-trial success in QS/SIQS-style factoring, and we provided **sound algebraic constructions** (notably a (k=5) form with four linears and a squareful constant) that preserve the square-congruence modulo (N). The method offers large **constant-factor** improvements at realistic key sizes and a clear, measurable pathway to reduce (B), accelerate sieving, and shrink the matrix. It does **not** alter the (L_{1/2}) exponent asymptotically (due to the 1-D density wall), but it is highly attractive in practice.
+We preserve the original *k*-split + pre-credit framework and add a **simpler search discipline**: couple (A) and (x) to the per-portion target (T\approx |N|/5), use **canonical (B)** near 0, and score directly on the **per-portion size error** plus a **richness** term. Back-of-the-paper slope heuristics (in bits) show:
+
+* At ~180 bits, (k=5) is steeper than QS but very manageable and often higher success.
+* At ~300 bits, QS can be flatter and slightly ahead at (B=2^{20}); (k=5) is usable if centering is tight.
+* At ~1024 bits, both are rare per trial; (k=5) is **highly convex**—being a little **smaller** than (|N|/5) per piece pays off disproportionately.
+
+The method offers substantial **constant-factor** gains with a clear, measurable pathway (via (\Delta E) logs and density accounting) to tune ((k,B,C)) and keep the per-portion slopes under control.
 
 ---
 
 ## Acknowledgments
 
-Thanks to discussions that clarified the middle-ground trade-offs between pre-credit size, k-split, admissible-(x) density, and to early experiments on 300-bit inputs that motivated the (k=5) linearization and the **|N|/5 per portion** bit-budget target.
+Thanks to discussions clarifying the middle-ground trade-offs among pre-credit size, k-split, admissible-(x) density, and to experiments on sub-300-bit inputs that motivated the (|N|/5) targeting discipline and the simplified search coupling.
 
 ---
 
-## References (suggested standard sources)
+## References (standard)
 
-* P. P. Pomerance, “The Quadratic Sieve Factoring Algorithm.”
+* P. Pomerance, “The Quadratic Sieve Factoring Algorithm.”
 * H. Riesel, *Prime Numbers and Computer Methods for Factorization.*
 * J. P. Buhler, H. W. Lenstra Jr., C. Pomerance, “Factoring integers with the number field sieve.”
 * A. Granville, “Smooth numbers: computational number theory and beyond.”
-* R. Crandall and C. Pomerance, *Prime Numbers: A Computational Perspective* (QS, SIQS, semismoothness chapters).
+* R. Crandall and C. Pomerance, *Prime Numbers: A Computational Perspective* (QS, SIQS, semismoothness).
 * de Bruijn / Dickman on the distribution of smooth numbers.
 
 ---
 
-## Appendix A: Heuristic Derivations
+## Appendix A: Heuristic Notes on Slopes
 
-**A.1 Success probability (Eq. 1).**
-Let the remainder magnitude be (S=2^{R_{\text{bits}}}). If split into (k) comparable pieces of size (S^{1/k}), each is (B)-smooth with probability (\rho!\left(\frac{\ln S^{1/k}}{\ln B}\right)=\rho!\left(\frac{R_{\text{bits}}}{kB_{\text{bits}}}\right)). Assuming independence (standard QS heuristic), multiply (k) times.
-
-**A.2 Density (Eq. 2).**
-For quadratic (Q), each prime power (p^e) contributes at most 2 lifts; CRT gives (\le 2^{\omega(P)}) residue classes mod (P). Thus frequency (\le 2^{\omega(P)}/P). Replacing (\omega(P)) by (t) yields (\lesssim 2^{t-C_{\text{bits}}}).
-
----
-
-## Appendix B: k=5 Construction Details and Bit Budget
-
-With (d=s^2,\ b=t^2) and (★) (c^2=f^2 s^2 t^2-2N),
+**A.1** Let (u=b/B_{\text{bits}}). Then
 [
-Q_5(x)=f^2 s^2,(s x-t)(s x+t)(f s^2 x-c)(f s^2 x+c).
+E_k(b)=-k\log_2\rho(u),\qquad
+\Delta E_\pm\approx E_k(b\pm\Delta b)-E_k(b).
 ]
+For large (u), (-\frac{\mathrm{d}}{\mathrm{d}u}\ln\rho(u)) grows roughly like (\ln u+\ln\ln u), so slopes increase with (u) and **scale (\propto k)**; increasing (B) (larger (B_{\text{bits}})) flattens slopes (at matrix cost).
 
-* **Roots mod (p):** simple linear roots; Hensel-liftable.
-* **Parity:** (f^2 s^2) is a square → parity-silent; contributes to pre-credit.
-* **Bit budget objective:**
-  [
-  \log_2(f^2 s^2)\ \approx\ |N|/5,\quad
-  \log_2|s x\pm t|\ \approx\ |N|/5,\quad
-  \log_2|f s^2 x\pm c|\ \approx\ |N|/5,
-  ]
-  with acceptable band ([|N|/6,,|N|/4]). Achieve by:
-
-    * choosing (f,s,t) as products of base primes with (\left(\tfrac{2N}{p}\right)=+1);
-    * centering (x_0) so (|s x_0|\approx |t|) and (|f s^2 x_0|\approx |c|);
-    * lifting (c) from (c^2\equiv 2N \pmod{(fst)}) to ((fst)^2), nudging ({s,t,f}) and re-lifting until all portions sit near target.
-
-**Telemetry.** For shortlisted indices, log empirical distributions of (\log_2|L_1|,\dots,\log_2|L_4|) and (\log_2(f^2 s^2)); recenter and retune if any portion drifts outside the target band.
-
----
-
-### How to cite this work
-
-> I. Gazman, “Search-Aided k-Split Smoothness for QS-Style Factoring: A Practical–Mathematical Framework and k=5 Constructions,” 2025. (preprint)
+**A.2** The “worst-piece dominates” effect: if one linear runs heavier than the others, it controls (E). Balanced portions minimize effective steepness.

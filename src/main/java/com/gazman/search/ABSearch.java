@@ -40,6 +40,7 @@ public class ABSearch extends Logger {
     // bias toward smaller primes when constructing A
     private static final double SMALL_FRACTION = 0.65;   // first 65% of pool considered "small"
     private static final double SMALL_DRAW_PROB = 0.85;  // prefer drawing from the small segment
+    public static final int RUN_TIME = 5_000;
     private final BigInteger N;
 
     public ABSearch(BigInteger N) {
@@ -169,19 +170,11 @@ public class ABSearch extends Logger {
     }
 
     /**
-     * Convenience: single-thread backwards-compatible entry.
-     */
-    public List<Poly> runFixedTime(int msBudget, int topK, int primeCeil, Integer xMaxOpt) {
-        int threads = Math.max(1, Runtime.getRuntime().availableProcessors());
-        return runFixedTimeParallel(msBudget, topK, primeCeil, xMaxOpt, threads);
-    }
-
-    /**
      * Multithreaded entry: uses 'threads' workers.
      */
-    public List<Poly> runFixedTimeParallel(int msBudget, int topK, int primeCeil, Integer xMaxOpt, int threads) {
+    public List<Poly> runFixedTimeParallel(int topK, int primeCeil, Integer xMaxOpt, int threads) {
         final long t0 = System.currentTimeMillis();
-        final long tend = t0 + msBudget;
+        final long tend = t0 + RUN_TIME;
 
         // 1) Build pool: primes with (N|p) = +1
         int[] primesRaw = primesUpTo(primeCeil);
