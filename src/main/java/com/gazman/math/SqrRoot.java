@@ -6,7 +6,6 @@ import java.math.BigInteger;
  * Source: http://stackoverflow.com/questions/4407839/how-can-i-find-the-square-root-of-a-java-biginteger
  */
 
-@SuppressWarnings("SpellCheckingInspection")
 public class SqrRoot {
     private static final BigInteger TWO = BigInteger.valueOf(2L);
 

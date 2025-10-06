@@ -29,8 +29,8 @@ public class SearchMain extends Logger {
         ABSearch search = new ABSearch(input);
 
         int msBudget = 20_000;     // 20 seconds
-        int topK     = 16;         // keep more top results (helps surface richer A)
-        int pmax     = 5_000_000;  // richer pool → more factors possible in A
+        int topK = 16;         // keep more top results (helps surface richer A)
+        int pmax = 5_000_000;  // richer pool → more factors possible in A
         Integer xMax = null;       // let search choose default
 
         int threads = Math.max(1, Runtime.getRuntime().availableProcessors());
