@@ -5,18 +5,11 @@ plugins {
 }
 
 java {
-    // Require JDK 25 so Loom (virtual threads) APIs are available
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
-    // (Optional) also set bytecode level explicitly
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
-}
-
-application {
-    // Your existing entry point
-    mainClass = 'com.gazman.Main'
 }
 
 repositories {
@@ -24,22 +17,37 @@ repositories {
 }
 
 dependencies {
-    testImplementation 'junit:junit:4.13.2'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    testImplementation 'junit:junit:4.13.2'
 }
 
-tasks.test {
-    useJUnit() // JUnit 4
-    // If you later switch to JUnit 5: useJUnitPlatform()
+application {
+    mainClass = 'com.gazman.Main'
+    // Ensure *run* uses UTF-8 even if IntelliJ delegates to Gradle:
+    applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
 }
 
-// Helpful for seeing which JDK Gradle picked for each task
+// Compile/source encoding
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
-tasks.withType(Test).configureEach {
+
+// Resources (if you have non-ASCII in resource files)
+tasks.named('processResources') {
+    // available on recent Gradle; falls back to default when not filtering
+    // but still sets the charset where applicable
+    filteringCharset = 'UTF-8'
+}
+
+// Any JavaExec (including `run`) — belt-and-suspenders
+tasks.withType(JavaExec).configureEach {
+    systemProperty 'file.encoding', 'UTF-8'
     jvmArgs += ['-Xms128m', '-Xmx1g']
 }
-tasks.withType(JavaExec).configureEach {
+
+// Tests
+tasks.withType(Test).configureEach {
+    systemProperty 'file.encoding', 'UTF-8'
     jvmArgs += ['-Xms128m', '-Xmx1g']
+    useJUnit()
 }

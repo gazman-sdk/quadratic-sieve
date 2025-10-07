@@ -3,15 +3,27 @@ package com.gazman;
 import com.gazman.factor.Logger;
 import com.gazman.search.FSTSearch;
 
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
 public class SearchMain extends Logger {
     private static final Random random = new Random(12);
 
     static void main(String[] args) {
+        forceUtf8Stdout();
         new SearchMain().init();
     }
+
+    public static void forceUtf8Stdout()  {
+        System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8));
+    }
+
 
     private void init() {
         int length = 150;
