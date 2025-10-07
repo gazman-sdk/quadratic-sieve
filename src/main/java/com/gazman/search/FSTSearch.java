@@ -18,7 +18,7 @@ import java.util.*;
 public class FSTSearch extends Logger {
 
     // ---------- Tunables ----------
-    public static final int SEARCH_TIME_MS = 5_000;
+    public static final int SEARCH_TIME_MS = 20_000;
 
     // Trial division limits (bounded prime-only)
     private static final int TRIAL_DIV_LIMIT = 1_000_000;     // Stage-2 (finalization)

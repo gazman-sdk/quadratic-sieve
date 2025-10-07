@@ -6,11 +6,14 @@ import com.gazman.factor.QuadraticThieve;
 import java.math.BigInteger;
 import java.util.Random;
 
+import static com.gazman.SearchMain.forceUtf8Stdout;
+
 public class Main extends Logger {
 
     private static final Random random = new Random(12);
 
     static void main() {
+        forceUtf8Stdout();
         new Main().init();
     }
 

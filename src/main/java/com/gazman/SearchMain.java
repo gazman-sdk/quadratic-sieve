@@ -38,7 +38,7 @@ public class SearchMain extends Logger {
         // ------ Try the robust k=5 search ------
         try {
             // A rough estimate for the sieve interval size for scoring purposes
-            long sieveM = 1L << (input.bitLength() / 5);
+            long sieveM = 1L << 20;
             FSTSearch fst = new FSTSearch(input);
             FSTSearch.Poly best = fst.findBestPolynomial(sieveM);
 

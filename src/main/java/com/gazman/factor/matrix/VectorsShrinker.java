@@ -8,19 +8,27 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 
 /**
- * Created by Ilya Gazman on 2/15/2016.
+ * Single-large-prime merging for k=5.
+ * Produces B-smooth relations by merging two 1-LP partials sharing the same big prime.
+ * For each merged relation:
+ *   x = Π A(X_i) mod N,  A(X)=f^2 s^2 (sX - t)(sX + t)  (mod N), with X = M + x_i
+ *   y = Π Q5(X_i)  (integer)
+ * and parity vector = XOR.
  */
 public class VectorsShrinker {
 
-
     private BigInteger N;
-    private BigInteger root;
     private int bigPrimesIndex;
 
-    public void init(BigInteger root, int biggestPrimeIndex, BigInteger N) {
-        this.root = root;
+    // k=5 polynomial + center
+    private BigInteger f, s, t, c, MB;
+
+    public void initK5(int biggestPrimeIndex, BigInteger N,
+                       BigInteger f, BigInteger s, BigInteger t, BigInteger c,
+                       BigInteger MB) {
         this.bigPrimesIndex = biggestPrimeIndex;
         this.N = N;
+        this.f = f; this.s = s; this.t = t; this.c = c; this.MB = MB;
     }
 
     @SuppressWarnings("unchecked")
@@ -28,62 +36,73 @@ public class VectorsShrinker {
         bSmoothVectors = (ArrayList<VectorData>) bSmoothVectors.clone();
         ArrayList<LinkedList<VectorData>> bigPrimes = bigPrimesList.getBigPrimes();
 
-
+        // Exact pairs first
         for (int i = bigPrimes.size() - 1; i >= 0; i--) {
             LinkedList<VectorData> vectorDatas = bigPrimes.get(i);
             if (vectorDatas.size() == 2) {
                 bigPrimes.remove(i);
-                VectorData vectorData = vectorDatas.get(0);
-                merge(vectorData, vectorDatas.get(1));
-                bSmoothVectors.add(vectorData);
+                VectorData a = vectorDatas.get(0);
+                VectorData b = vectorDatas.get(1);
+                mergeInto(a, b);
+                bSmoothVectors.add(a);
             }
         }
 
-
+        // Residual big primes: assign synthetic indices
         for (LinkedList<VectorData> bigPrimeList : bigPrimes) {
             boolean updateIndex = false;
             boolean firstVector = true;
             int bigPrimeIndex = -1;
 
-            for (VectorData vectorData : bigPrimeList) {
-                if (firstVector && vectorData.bigPrimeIndex == -1) {
+            for (VectorData vd : bigPrimeList) {
+                if (firstVector && vd.bigPrimeIndex == -1) {
                     firstVector = false;
                     updateIndex = true;
                 }
-                if (vectorData.bigPrimeIndex == -1) {
-                    if (bigPrimeIndex == -1) {
-                        bigPrimeIndex = this.bigPrimesIndex;
-                    }
-                    vectorData.bigPrimeIndex = bigPrimeIndex;
-                    vectorData.vector.set(bigPrimeIndex);
+                if (vd.bigPrimeIndex == -1) {
+                    if (bigPrimeIndex == -1) bigPrimeIndex = this.bigPrimesIndex;
+                    vd.bigPrimeIndex = bigPrimeIndex;
+                    vd.vector.set(bigPrimeIndex);
                 } else {
-                    bigPrimeIndex = vectorData.bigPrimeIndex;
+                    bigPrimeIndex = vd.bigPrimeIndex;
                 }
-                bSmoothVectors.add(vectorData);
+                bSmoothVectors.add(vd);
             }
-            if (updateIndex) {
-                this.bigPrimesIndex++;
-            }
+            if (updateIndex) this.bigPrimesIndex++;
         }
 
         return bSmoothVectors;
     }
 
-    private void merge(VectorData result, VectorData vectorToMerge) {
-        result.vector.xor(vectorToMerge.vector);
-        BigInteger x1 = calculateX(result.position);
-        BigInteger x2 = calculateX(vectorToMerge.position);
-        result.x = x1.multiply(x2);
-        result.y = calculateY(x1).multiply(calculateY(x2));
+    private void mergeInto(VectorData result, VectorData other) {
+        result.vector.xor(other.vector);
+
+        BigInteger X1 = MB.add(BigInteger.valueOf(result.position));
+        BigInteger X2 = MB.add(BigInteger.valueOf(other.position));
+
+        BigInteger A1 = A_of(X1);
+        BigInteger A2 = A_of(X2);
+        BigInteger Q1 = Q5_of(X1);
+        BigInteger Q2 = Q5_of(X2);
+
+        result.x = A1.multiply(A2).mod(N);
+        result.y = Q1.multiply(Q2);
     }
 
-    private BigInteger calculateY(BigInteger x) {
-        return x.pow(2).subtract(N);
+    // A(X) = f^2 s^2 (sX - t)(sX + t)  (mod N)
+    private BigInteger A_of(BigInteger X) {
+        BigInteger sX = s.multiply(X);
+        BigInteger term = sX.subtract(t).multiply(sX.add(t));
+        return f.multiply(f).multiply(s).multiply(s).multiply(term).mod(N);
     }
 
-    private BigInteger calculateX(long position) {
-        return root.add(BigInteger.valueOf(position));
+    // Q5(X) = (f^2 s^2) * moving part
+    private BigInteger Q5_of(BigInteger X) {
+        BigInteger sX   = s.multiply(X);
+        BigInteger fs2X = f.multiply(s).multiply(s).multiply(X);
+        BigInteger mov  = sX.subtract(t).multiply(sX.add(t))
+                .multiply(fs2X.subtract(c))
+                .multiply(fs2X.add(c));
+        return f.multiply(f).multiply(s).multiply(s).multiply(mov);
     }
-
-
 }
