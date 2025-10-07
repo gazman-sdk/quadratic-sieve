@@ -6,7 +6,6 @@ import com.gazman.search.FSTSearch;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
@@ -26,7 +25,7 @@ public class SearchMain extends Logger {
 
 
     private void init() {
-        int length = 150;
+        int length = 90;
         BigInteger a = BigInteger.probablePrime(length + 1, random);
         BigInteger b = BigInteger.probablePrime(length - 1, random);
 

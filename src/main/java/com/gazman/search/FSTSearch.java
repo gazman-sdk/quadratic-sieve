@@ -10,14 +10,15 @@ import java.util.*;
  * FSTSearch with:
  *  - QS-style residue wheel presieve for m (dramatically fewer candidates)
  *  - Shape-aware preselection using an edge-aware "elite" score
- *  - Final logs: sBits, fsBits, slopes, and line bit-sizes at x=1, 2^20, 2^30
+ *  - Final logs: sBits, fsBits, slopes, and line bit-sizes at x=1, 2^10, 2^20, 2^30 (both +x and -x)
+ *  - Predicted edge-bit summaries for B = 2^20 and B = 2^30
  *
  * Public API preserved: findBestPolynomial(long sieveM)
  */
 public class FSTSearch extends Logger {
 
     // ---------- Tunables ----------
-    public static final int SEARCH_TIME_MS = 20_000;
+    public static final int SEARCH_TIME_MS = 5_000;
 
     // Trial division limits (bounded prime-only)
     private static final int TRIAL_DIV_LIMIT = 1_000_000;     // Stage-2 (finalization)
@@ -30,8 +31,7 @@ public class FSTSearch extends Logger {
     // QS wheel primes (product W ≈ 255,255) — prune ~1/2 per prime.
     private static final int[] WHEEL_PRIMES = {3, 5, 7, 11, 13, 17};
 
-    // Stage-1 edge window assumption (half width) for pre-score; tweak if your sieve window differs.
-    // Using B = 2^20 keeps L3/L4 edge growth under control in preselection.
+    // Stage-1 edge window assumption (half width) for pre-score
     private static final int PRESELECT_B_BITS = 20;
 
     // Weight of the N-link residual penalty (in bits) added to RMS
@@ -143,8 +143,12 @@ public class FSTSearch extends Logger {
                 "sBits", best.s.bitLength(), "tBits", best.t.bitLength(),
                 "| cBits", best.c.bitLength(), "| linkResidualBits", best.linkResidualBits);
 
-        // Detailed behavior logs (center, x=1, x=2^20, x=2^30; both +x and -x)
+        // Detailed behavior logs (center, x=1, x=2^10, x=2^20, x=2^30; both +x and -x)
         logEliteSummary(best, sieveM);
+
+        // Predicted edge bits using slope model for typical windows
+        logPredictedEdgeBits(best, sieveM, 20);
+        logPredictedEdgeBits(best, sieveM, 30);
 
         return best;
     }
@@ -246,15 +250,12 @@ public class FSTSearch extends Logger {
                 "sBits", best.s.bitLength(), "tBits", best.t.bitLength(),
                 "| cBits", best.c.bitLength(), "| linkResidualBits", best.linkResidualBits);
         logEliteSummary(best, sieveM);
+        logPredictedEdgeBits(best, sieveM, 20);
+        logPredictedEdgeBits(best, sieveM, 30);
         return best;
     }
 
     // ---------- Elite edge-aware scoring ----------
-    private static int log2Floor(long x) {
-        if (x <= 0) return 0;
-        return 63 - Long.numberOfLeadingZeros(x);
-    }
-
     /**
      * Predicts edge behavior using slopes and half-window B = 2^Bbits.
      * Uses edge bits (not center) in the RMS + residual penalty.
@@ -310,9 +311,10 @@ public class FSTSearch extends Logger {
                 " | slope(L3/4)=|f*s^2|≈2^", fs2.bitLength(),
                 " | constBits=", constBits);
 
-        // Print center and behavior for x=1, x=2^20, x=2^30; for both +x and -x
+        // Center and a few specific x values
         logBehaviorAtX(p, M, 0);
         logBehaviorAtX(p, M, 1);
+        logBehaviorAtX(p, M, 1L << 10);
         logBehaviorAtX(p, M, 1L << 20);
         logBehaviorAtX(p, M, 1L << 30);
     }
@@ -324,8 +326,9 @@ public class FSTSearch extends Logger {
 
         String label = (x == 0) ? "x=0(center)" :
                 (x == 1 ? "x=1" :
-                        (x == (1L<<20) ? "x=2^20" :
-                                (x == (1L<<30) ? "x=2^30" : "x=" + x)));
+                        (x == (1L<<10) ? "x=2^10" :
+                                (x == (1L<<20) ? "x=2^20" :
+                                        (x == (1L<<30) ? "x=2^30" : "x=" + x))));
 
         // +x
         BigInteger Xp = MB.add(BigInteger.valueOf(x));
@@ -333,21 +336,16 @@ public class FSTSearch extends Logger {
         int L2p = s.multiply(Xp).add(p.t).abs().bitLength();
         int L3p = fs2.multiply(Xp).subtract(p.c).abs().bitLength();
         int L4p = fs2.multiply(Xp).add(p.c).abs().bitLength();
+        int Cb  = p.f.multiply(p.s).bitLength() * 2;
 
         if (x == 0) {
             log("Center bits:    L1=", L1p, " L2=", L2p, " L3=", L3p, " L4=", L4p,
-                    " | Const=", p.f.multiply(p.s).bitLength() * 2,
-                    " | target=", portionBits);
+                    " | Const=", Cb, " | target=", portionBits);
             return;
         }
 
         // -x
         BigInteger Xm = MB.subtract(BigInteger.valueOf(x));
-        if (Xm.signum() < 0) {
-            // if negative, just log +x side
-            log(label, "(+x) bits: L1=", L1p, " L2=", L2p, " L3=", L3p, " L4=", L4p);
-            return;
-        }
         int L1m = s.multiply(Xm).subtract(p.t).abs().bitLength();
         int L2m = s.multiply(Xm).add(p.t).abs().bitLength();
         int L3m = fs2.multiply(Xm).subtract(p.c).abs().bitLength();
@@ -355,7 +353,36 @@ public class FSTSearch extends Logger {
 
         log(label, " (+x) L1=", L1p, " L2=", L2p, " L3=", L3p, " L4=", L4p,
                 " | (-x) L1=", L1m, " L2=", L2m, " L3=", L3m, " L4=", L4m,
-                " | target=", portionBits);
+                " | Const=", Cb, " | target=", portionBits);
+    }
+
+    private void logPredictedEdgeBits(Poly p, long M, int Bbits) {
+        BigInteger MB = BigInteger.valueOf(M);
+        BigInteger s   = p.s;
+        BigInteger fs  = p.f.multiply(p.s);
+        BigInteger fs2 = fs.multiply(p.s);
+
+        int l1c = s.multiply(MB).subtract(p.t).abs().bitLength();
+        int l2c = s.multiply(MB).add(p.t).abs().bitLength();
+        int l3c = fs2.multiply(MB).subtract(p.c).abs().bitLength();
+        int l4c = fs2.multiply(MB).add(p.c).abs().bitLength();
+        int cons = fs.bitLength() * 2;
+
+        int sBits  = s.bitLength();
+        int fsBits = fs.bitLength();
+
+        int l1e = Math.max(l1c, sBits + Bbits);
+        int l2e = Math.max(l2c, sBits + Bbits);
+        int l3e = Math.max(l3c, 2*fsBits + Bbits);
+        int l4e = Math.max(l4c, 2*fsBits + Bbits);
+
+        log("Predicted edge bits (M=", M, ", B=2^", Bbits, "):");
+        log("  Target:     ", portionBits);
+        log("  L1(sx-t):   ", l1e);
+        log("  L2(sx+t):   ", l2e);
+        log("  L3(fs²x-c): ", l3e);
+        log("  L4(fs²x+c): ", l4e);
+        log("  Const(f²s²):", cons);
     }
 
     // ---------- Factoring ----------
